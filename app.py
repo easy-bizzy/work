@@ -39,15 +39,24 @@ def save_hours(month, emp, hours):
 def calc_stats(hours, norm, workdays):
     total = sum(hours)
     overtime = sum(max(0, h - 8) for h in hours if h > 0)
-    efficiency = (total / norm * 100) if norm > 0 else 0
-    remaining_hours = max(0, norm - total)
+    efficiency_hours = (total / norm * 100) if norm > 0 else 0
     workdays_worked = sum(1 for h in hours if h > 0)
+    efficiency_days = (workdays_worked / workdays * 100) if workdays > 0 else 0
+    remaining_hours = max(0, norm - total)
     remaining_days = max(0, workdays - workdays_worked)
-    return total, overtime, efficiency, remaining_hours, workdays_worked, remaining_days
+    return {
+        'total': total,
+        'overtime': overtime,
+        'efficiency_hours': efficiency_hours,
+        'efficiency_days': efficiency_days,
+        'workdays_worked': workdays_worked,
+        'remaining_hours': remaining_hours,
+        'remaining_days': remaining_days,
+    }
 
-st.sidebar.title(' Учет рабочего времени')
+st.sidebar.title('📊 Учет рабочего времени')
 
-st.sidebar.markdown('### 💾 Управление данными')
+st.sidebar.markdown('###  Управление данными')
 data_json = json.dumps(st.session_state.hours_data, ensure_ascii=False)
 st.sidebar.download_button(
     label='📥 Скачать бэкап',
@@ -64,12 +73,10 @@ if uploaded_file is not None:
         st.session_state.hours_data = new_data
         st.sidebar.success('✅ Данные загружены!')
     except Exception as e:
-        st.sidebar.error(f' Ошибка: {e}')
+        st.sidebar.error(f'❌ Ошибка: {e}')
 
 st.sidebar.markdown('---')
-
-# ВАЖНО: эмодзи должны совпадать с условиями ниже!
-page = st.sidebar.radio('📋 Меню', ['📊 Дашборд', '✏️ Ввод часов', '🏆 Рейтинг'])
+page = st.sidebar.radio('📋 Меню', ['📊 Дашборд', '️ Ввод часов', '🏆 Рейтинг'])
 month = st.sidebar.selectbox('📅 Месяц', MONTHS)
 
 month_info = MONTHS_DATA[month]
@@ -82,79 +89,76 @@ st.sidebar.markdown(f'Рабочих дней: **{workdays}**')
 st.sidebar.markdown(f'Норма часов: **{norm}**')
 
 # ============================================
-# ДАШБОРД
+# ДАШБОРД (НОВЫЙ)
 # ============================================
 if page == '📊 Дашборд':
     st.title(f'📊 Дашборд — {month} 2026')
     
-    stats_list = []
+    # Собираем статистику и определяем лидера
+    all_stats = []
     for emp in EMPLOYEES:
         hours = get_hours(month, emp)
-        total, overtime, efficiency, remaining_hours, workdays_worked, remaining_days = calc_stats(hours, norm, workdays)
-        stats_list.append({
-            'Сотрудник': emp,
-            'Отработано часов': total,
-            'Норма часов': norm,
-            'Осталось часов': remaining_hours,
-            'Процент выполнения': f'{efficiency:.1f}%',
-            'Отработано дней': workdays_worked,
-            'Рабочих дней в месяце': workdays,
-            'Осталось дней': remaining_days,
-            'Переработка': overtime
-        })
+        stats = calc_stats(hours, norm, workdays)
+        stats['name'] = emp
+        all_stats.append(stats)
     
-    df = pd.DataFrame(stats_list)
+    # Находим лидера (максимум часов)
+    max_hours = max(s['total'] for s in all_stats)
+    leader_name = next(s['name'] for s in all_stats if s['total'] == max_hours) if max_hours > 0 else None
     
-    st.subheader('📋 Статистика по каждому сотруднику')
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    # Сортируем по часам (лидер сверху)
+    all_stats.sort(key=lambda s: s['total'], reverse=True)
     
+    st.markdown('**📋 Прокрути вниз чтобы увидеть информацию по каждому сотруднику**')
     st.markdown('---')
-    st.subheader('📊 Прогресс выполнения нормы')
     
-    for idx, row in df.iterrows():
-        emp = row['Сотрудник']
-        hours = row['Отработано часов']
-        percent = row['Процент выполнения']
-        remaining = row['Осталось часов']
-        progress_value = min(hours / norm, 1.0)
+    # Карточки сотрудников
+    for idx, stats in enumerate(all_stats):
+        emp = stats['name']
+        is_leader = (emp == leader_name) and stats['total'] > 0
         
-        st.markdown(f'**{emp}** — {hours:.1f} / {norm} ч ({percent})')
-        if remaining > 0:
-            st.markdown(f'Осталось: **{remaining:.1f} ч**')
+        # Заголовок карточки
+        if is_leader:
+            st.markdown(f'###  {emp} — ЛИДЕР МЕСЯЦА')
         else:
-            st.markdown(f'✅ **Норма выполнена!** Переработка: {row["Переработка"]:.1f} ч')
+            place = idx + 1
+            st.markdown(f'### #{place} {emp}')
         
-        progress_html = f'''
-        <div style="background-color: #2d2d2d; border-radius: 10px; padding: 3px; margin-bottom: 20px;">
-            <div style="background-color: #4CAF50; width: {progress_value * 100}%; height: 30px; border-radius: 8px; text-align: center; line-height: 30px; color: white; font-weight: bold;">
-                {percent}
+        # Статистика в колонках
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric('⏱ Всего часов', f"{stats['total']:.1f} / {norm}")
+        with col2:
+            st.metric('📅 Рабочих дней', f"{stats['workdays_worked']} / {workdays}")
+        with col3:
+            st.metric('🔥 Переработка', f"{stats['overtime']:.1f} ч")
+        with col4:
+            remaining = stats['remaining_hours']
+            if remaining > 0:
+                st.metric('⏳ Осталось часов', f"{remaining:.1f} ч")
+            else:
+                st.metric('✅ Норма выполнена', f"+{stats['total'] - norm:.1f} ч")
+        
+        # Проценты выполнения
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f"**📊 % выполнения по часам:** {stats['efficiency_hours']:.1f}%")
+        with col2:
+            st.markdown(f"**📅 % выполнения по дням:** {stats['efficiency_days']:.1f}%")
+        
+        # Бесцветный прогресс-бар (по часам)
+        progress_value = min(stats['efficiency_hours'] / 100, 1.0)
+        bar_html = f'''
+        <div style="background-color: #2d2d2d; border-radius: 10px; padding: 3px; margin: 15px 0;">
+            <div style="background-color: #9CA3AF; width: {progress_value * 100}%; height: 35px; border-radius: 8px; text-align: center; line-height: 35px; color: white; font-weight: bold; font-size: 14px;">
+                {stats['efficiency_hours']:.1f}%
             </div>
         </div>
         '''
-        st.markdown(progress_html, unsafe_allow_html=True)
-    
-    st.markdown('---')
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader('⏱ Отработанные часы vs Норма')
-        if not df.empty:
-            st.bar_chart(df.set_index('Сотрудник')[['Отработано часов', 'Норма часов']])
-    with col2:
-        st.subheader('🔥 Переработка по сотрудникам')
-        if not df.empty:
-            st.bar_chart(df.set_index('Сотрудник')['Переработка'])
-    
-    st.markdown('---')
-    st.subheader('🏆 Статистика')
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        top_worker = df.loc[df['Отработано часов'].idxmax()]
-        st.metric(' Лидер месяца', top_worker['Сотрудник'], f"{top_worker['Отработано часов']:.1f} ч")
-    with col2:
-        st.metric('🔥 Всего переработок', f"{df['Переработка'].sum():.1f} ч")
-    with col3:
-        completed = len(df[df['Осталось часов'] == 0])
-        st.metric('✅ Выполнили норму', f'{completed} чел.')
+        st.markdown(bar_html, unsafe_allow_html=True)
+        
+        # Разделитель
+        st.markdown('---')
 
 # ============================================
 # ВВОД ЧАСОВ (ТАБЛИЦА)
@@ -166,14 +170,13 @@ elif page == '✏️ Ввод часов':
     with col1: st.info(f'📅 Рабочих дней: **{workdays}**')
     with col2: st.info(f'⏱ Норма часов: **{norm}**')
     with col3: st.info(f'🔴 Праздников: **{len(month_info["holidays"])}**')
-    with col4: st.info(f'🟠 Сокращённых: **{len(month_info["short"])}**')
+    with col4: st.info(f' Сокращённых: **{len(month_info["short"])}**')
     
     st.markdown('---')
     
     cal = month_info
     days_count = DAYS_IN_MONTH[month]
     
-    # Формируем таблицу
     table_data = []
     for emp in EMPLOYEES:
         hours = get_hours(month, emp)
@@ -192,7 +195,6 @@ elif page == '✏️ Ввод часов':
     
     df_input = pd.DataFrame(table_data)
     
-    # Настройка колонок
     column_config = {
         'Сотрудник': st.column_config.TextColumn('Сотрудник', width='medium', disabled=True),
         'ИТОГО': st.column_config.NumberColumn('ИТОГО', format='%.1f', width='small', disabled=True),
@@ -229,7 +231,6 @@ elif page == '✏️ Ввод часов':
         key='hours_table'
     )
     
-    # Пересчёт ИТОГО и ПЕРЕРАБ
     for idx in range(len(edited_df)):
         total = sum(float(edited_df.iloc[idx][str(day)]) for day in range(1, days_count + 1))
         overtime = sum(max(0, float(edited_df.iloc[idx][str(day)]) - 8) 
@@ -238,9 +239,8 @@ elif page == '✏️ Ввод часов':
         edited_df.at[edited_df.index[idx], 'ИТОГО'] = round(total, 1)
         edited_df.at[edited_df.index[idx], 'ПЕРЕРАБ'] = round(overtime, 1)
     
-    # Кнопка сохранения
     st.markdown('---')
-    if st.button('💾 СОХРАНИТЬ ВСЕ ДАННЫЕ', type='primary', use_container_width=True):
+    if st.button(' СОХРАНИТЬ ВСЕ ДАННЫЕ', type='primary', use_container_width=True):
         for idx, emp in enumerate(EMPLOYEES):
             if idx < len(edited_df):
                 new_hours = [float(edited_df.iloc[idx][str(day)]) for day in range(1, days_count + 1)]
@@ -250,26 +250,25 @@ elif page == '✏️ Ввод часов':
         st.success('✅ Все данные сохранены!')
         st.balloons()
     
-    # Легенда
     st.markdown('---')
-    st.markdown('** Легенда:** 🔴 Праздник | 🟠 Сокращённый |  Выходной | ⚪ Рабочий')
+    st.markdown('**📌 Легенда:** 🔴 Праздник | 🟠 Сокращённый | 🟣 Выходной | ⚪ Рабочий')
     st.markdown('💡 **Переработка** = всё что больше 8 часов в день')
 
 # ============================================
 # РЕЙТИНГ
 # ============================================
-elif page == '🏆 Рейтинг':
-    st.title(f'🏆 Рейтинг — {month}')
+elif page == ' Рейтинг':
+    st.title(f' Рейтинг — {month}')
     
     stats_list = []
     for emp in EMPLOYEES:
         hours = get_hours(month, emp)
-        total, overtime, efficiency, remaining_hours, workdays_worked, remaining_days = calc_stats(hours, norm, workdays)
+        stats = calc_stats(hours, norm, workdays)
         stats_list.append({
             'Сотрудник': emp,
-            'Часы': total,
-            'Переработка': overtime,
-            'Эффективность %': round(efficiency, 1)
+            'Часы': stats['total'],
+            'Переработка': stats['overtime'],
+            'Эффективность %': round(stats['efficiency_hours'], 1)
         })
     
     df = pd.DataFrame(stats_list).sort_values('Часы', ascending=False).reset_index(drop=True)
@@ -278,14 +277,14 @@ elif page == '🏆 Рейтинг':
         st.warning('⚠️ Нет данных за этот месяц. Введите часы на странице "Ввод часов".')
     else:
         st.markdown('---')
-        st.subheader('🏆 Подиум')
+        st.subheader(' Подиум')
         
         if len(df) >= 3:
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.markdown(f"""
                 <div style="background:#C0C0C0; padding:20px; border-radius:10px; text-align:center;">
-                <h2>🥈</h2><h3>{df.iloc[1]["Сотрудник"]}</h3>
+                <h2></h2><h3>{df.iloc[1]["Сотрудник"]}</h3>
                 <p><b>{df.iloc[1]["Часы"]:.1f} ч</b></p>
                 <p>Переработка: {df.iloc[1]["Переработка"]:.1f} ч</p>
                 </div>
@@ -313,12 +312,12 @@ elif page == '🏆 Рейтинг':
         st.dataframe(df, use_container_width=True)
         
         st.markdown('---')
-        st.subheader('🏅 Награды месяца')
+        st.subheader(' Награды месяца')
         col1, col2 = st.columns(2)
         with col1:
             st.markdown(f"""
             <div style="background:linear-gradient(135deg, #FFD700, #FFA500); padding:20px; border-radius:10px; border:2px solid gold;">
-            <h2> ГРАМОТА</h2><h3 style="color:#000;">ЕБАТЬ ТЫ МОЛОДЕЦ</h3>
+            <h2>🏆 ГРАМОТА</h2><h3 style="color:#000;">ЕБАТЬ ТЫ МОЛОДЕЦ</h3>
             <p><b>{df.iloc[0]["Сотрудник"]}</b></p>
             <p>{df.iloc[0]["Часы"]:.1f} часов | {df.iloc[0]["Переработка"]:.1f} ч переработки</p>
             </div>
