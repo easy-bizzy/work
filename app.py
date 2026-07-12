@@ -5,7 +5,7 @@ from datetime import date, datetime
 
 st.set_page_config(
     page_title="Учёт рабочего времени",
-    page_icon="",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -34,12 +34,12 @@ if 'feed' not in st.session_state:
     st.session_state.feed = []
 if 'votes' not in st.session_state:
     st.session_state.votes = {
-        'hardworker': {},  # голоса за работящего
-        'slacker': {},     # голоса за халявщика
-        'voters': []       # кто уже голосовал
+        'hardworker': {},
+        'slacker': {},
+        'voters': []
     }
 if 'checkins' not in st.session_state:
-    st.session_state.checkins = {}  # ежедневные отметки
+    st.session_state.checkins = {}
 
 def get_hours(month, emp):
     key = f"{month}_{emp}"
@@ -51,15 +51,13 @@ def save_hours(month, emp, hours):
     key = f"{month}_{emp}"
     st.session_state.hours_data[key] = hours
 
-def add_to_feed(message, emoji='📝'):
-    """Добавить запись в ленту активности"""
+def add_to_feed(message, emoji=''):
     now = datetime.now().strftime('%d.%m %H:%M')
     st.session_state.feed.insert(0, {
         'time': now,
         'emoji': emoji,
         'message': message
     })
-    # Ограничиваем ленту 50 записями
     if len(st.session_state.feed) > 50:
         st.session_state.feed = st.session_state.feed[:50]
 
@@ -73,20 +71,16 @@ def calc_stats(hours, norm, workdays):
     return total, overtime, efficiency, remaining_hours, workdays_worked, remaining_days
 
 def get_checkin_streak(emp):
-    """Посчитать серию дней подряд"""
     if emp not in st.session_state.checkins:
         return 0
     return len(st.session_state.checkins[emp])
 
 def mark_checkin(emp, month, day):
-    """Отметить ежедневный заход"""
     if emp not in st.session_state.checkins:
         st.session_state.checkins[emp] = []
     entry = f"{month} День {day} ({date.today().strftime('%d.%m')})"
     if entry not in st.session_state.checkins[emp]:
         st.session_state.checkins[emp].append(entry)
-        streak = len(st.session_state.checkins[emp])
-        add_to_feed(f'{emp} отметил день #{day} в {month}! Серия: {streak} 🔥', '✅')
 
 # ============================================
 # БОКОВАЯ ПАНЕЛЬ
@@ -130,7 +124,7 @@ norm = month_info['norm']
 workdays = month_info['workdays']
 
 st.sidebar.markdown('---')
-st.sidebar.markdown(f'** {month} 2026**')
+st.sidebar.markdown(f'**📅 {month} 2026**')
 st.sidebar.markdown(f'Рабочих дней: **{workdays}**')
 st.sidebar.markdown(f'Норма часов: **{norm}**')
 
@@ -176,7 +170,7 @@ if page == 'dashboard':
             st.bar_chart(df.set_index('Сотрудник')['Переработка'])
     
     st.markdown('---')
-    st.subheader('🏆 Статистика')
+    st.subheader(' Статистика')
     col1, col2, col3 = st.columns(3)
     with col1:
         top_worker = df.loc[df['Отработано часов'].idxmax()]
@@ -236,14 +230,14 @@ if page == 'dashboard':
         st.markdown('---')
 
 # ============================================
-# ВВОД ЧАСОВ С АВТО-АКТИВНОСТЬЮ
+# ВВОД ЧАСОВ С ЦВЕТНЫМИ КОЛОНКАМИ
 # ============================================
 elif page == 'input':
-    st.title(f'✏️ Ввод часов — {month} 2026')
+    st.title(f'️ Ввод часов — {month} 2026')
     
     col1, col2, col3, col4 = st.columns(4)
     with col1: st.info(f'📅 Рабочих дней: **{workdays}**')
-    with col2: st.info(f'⏱ Норма часов: **{norm}**')
+    with col2: st.info(f' Норма часов: **{norm}**')
     with col3: st.info(f'🔴 Праздников: **{len(month_info["holidays"])}**')
     with col4: st.info(f'🟠 Сокращённых: **{len(month_info["short"])}**')
     
@@ -252,6 +246,52 @@ elif page == 'input':
     cal = month_info
     days_count = DAYS_IN_MONTH[month]
     
+    # CSS для окраски колонок таблицы
+    # Колонка 1 = Сотрудник, колонки 2-32 = дни 1-31, 33 = ИТОГО, 34 = ПЕРЕРАБ
+    css_rules = []
+    for day in range(1, days_count + 1):
+        col_index = day + 1  # +1 потому что первая колонка "Сотрудник"
+        if day in cal['holidays']:
+            css_rules.append(f'div[data-testid="stDataFrame"] table tr th:nth-child({col_index}), div[data-testid="stDataFrame"] table tr td:nth-child({col_index}) {{ background-color: #FCA5A5 !important; color: #991B1B !important; }}')
+        elif day in cal['short']:
+            css_rules.append(f'div[data-testid="stDataFrame"] table tr th:nth-child({col_index}), div[data-testid="stDataFrame"] table tr td:nth-child({col_index}) {{ background-color: #FED7AA !important; color: #9A3412 !important; }}')
+        elif day in cal['weekends']:
+            css_rules.append(f'div[data-testid="stDataFrame"] table tr th:nth-child({col_index}), div[data-testid="stDataFrame"] table tr td:nth-child({col_index}) {{ background-color: #E9D5FF !important; color: #6B21A8 !important; }}')
+    
+    # Колонки ИТОГО и ПЕРЕРАБ
+    css_rules.append('div[data-testid="stDataFrame"] table tr th:nth-child(33), div[data-testid="stDataFrame"] table tr td:nth-child(33) { background-color: #86EFAC !important; color: #064E3B !important; font-weight: bold; }')
+    css_rules.append('div[data-testid="stDataFrame"] table tr th:nth-child(34), div[data-testid="stDataFrame"] table tr td:nth-child(34) { background-color: #FDE047 !important; color: #713F12 !important; font-weight: bold; }')
+    
+    css_string = '\n'.join(css_rules)
+    st.markdown(f'<style>{css_string}</style>', unsafe_allow_html=True)
+    
+    # Визуальная легенда дней над таблицей
+    st.markdown('**📅 Календарь месяца (цветные ячейки = выходные/праздники/сокращённые):**')
+    
+    legend_html = '<div style="display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 15px;">'
+    for day in range(1, days_count + 1):
+        if day in cal['holidays']:
+            color = '#FCA5A5'
+            text_color = '#991B1B'
+            label = f'🔴{day}'
+        elif day in cal['short']:
+            color = '#FED7AA'
+            text_color = '#9A3412'
+            label = f'🟠{day}'
+        elif day in cal['weekends']:
+            color = '#E9D5FF'
+            text_color = '#6B21A8'
+            label = f'🟣{day}'
+        else:
+            color = '#374151'
+            text_color = '#FFFFFF'
+            label = str(day)
+        
+        legend_html += f'<div style="background-color: {color}; color: {text_color}; padding: 4px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; min-width: 28px; text-align: center;">{label}</div>'
+    legend_html += '</div>'
+    st.markdown(legend_html, unsafe_allow_html=True)
+    
+    # Таблица
     table_data = []
     for emp in EMPLOYEES:
         hours = get_hours(month, emp)
@@ -295,7 +335,7 @@ elif page == 'input':
             width='small'
         )
     
-    st.markdown('**💡 Кликай на ячейку и вводи часы. Нажми "СОХРАНИТЬ" — запись появится в ленте активности!**')
+    st.markdown('**💡 Кликай на ячейку и вводи часы. Цветные колонки показывают тип дня.**')
     
     edited_df = st.data_editor(
         df_input,
@@ -336,20 +376,24 @@ elif page == 'input':
                     new_hours.append(0.0)
                 save_hours(month, emp, new_hours[:31])
                 
-                # Добавляем запись в ленту
                 if total_emp > 0:
                     add_to_feed(
                         f'{emp} проставил часы за {month}: {total_emp:.1f} ч ({days_worked} дн.)',
                         '⏱'
                     )
-                    # Отмечаем ежедневный заход
                     mark_checkin(emp, month, days_worked)
         
         st.success('✅ Все данные сохранены! Записи добавлены в ленту активности.')
         st.balloons()
     
     st.markdown('---')
-    st.markdown('** Легенда:** 🔴 Праздник |  Сокращённый | 🟣 Выходной | ⚪ Рабочий')
+    st.markdown('**📌 Легенда:**')
+    st.markdown('''
+    <span style="background-color: #FCA5A5; color: #991B1B; display: inline-block; padding: 5px 10px; margin: 2px; border-radius: 5px; font-size: 12px;">🔴 Праздник</span>
+    <span style="background-color: #FED7AA; color: #9A3412; display: inline-block; padding: 5px 10px; margin: 2px; border-radius: 5px; font-size: 12px;">🟠 Сокращённый</span>
+    <span style="background-color: #E9D5FF; color: #6B21A8; display: inline-block; padding: 5px 10px; margin: 2px; border-radius: 5px; font-size: 12px;">🟣 Выходной</span>
+    <span style="background-color: #374151; color: white; display: inline-block; padding: 5px 10px; margin: 2px; border-radius: 5px; font-size: 12px;">⚪ Рабочий</span>
+    ''', unsafe_allow_html=True)
     st.markdown('💡 **Переработка** = всё что больше 8 часов в день')
 
 # ============================================
@@ -361,7 +405,6 @@ elif page == 'activity':
     st.markdown('**Здесь отображаются все действия сотрудников в реальном времени**')
     st.markdown('---')
     
-    # Статистика заходов
     st.subheader('🔥 Ежедневные серии')
     
     checkin_data = []
@@ -370,7 +413,7 @@ elif page == 'activity':
         checkin_data.append({
             'Сотрудник': emp,
             'Серия дней': streak,
-            'Статус': ' В игре' if streak > 0 else '😴 Не активен'
+            'Статус': '🔥 В игре' if streak > 0 else '😴 Не активен'
         })
     
     df_checkin = pd.DataFrame(checkin_data).sort_values('Серия дней', ascending=False)
@@ -378,11 +421,10 @@ elif page == 'activity':
     
     st.markdown('---')
     
-    # Сама лента
     st.subheader('📰 Последние события')
     
     if len(st.session_state.feed) == 0:
-        st.info('📭 Лента пуста. Начни вводить часы — события появятся здесь!')
+        st.info(' Лента пуста. Начни вводить часы — события появятся здесь!')
     else:
         for item in st.session_state.feed:
             st.markdown(f"""
@@ -396,39 +438,37 @@ elif page == 'activity':
     
     st.markdown('---')
     
-    # Кнопка очистки ленты
-    if st.button('️ Очистить ленту', use_container_width=True):
+    if st.button('🗑️ Очистить ленту', use_container_width=True):
         st.session_state.feed = []
         st.success('Лента очищена!')
         st.rerun()
 
 # ============================================
-# ГОЛОСОВАНИЯ
+# ГОЛОСОВАНИЯ (АНОНИМНЫЕ)
 # ============================================
 elif page == 'votes':
-    st.title('🗳️ Голосования недели')
+    st.title('️ Голосования недели')
     
-    st.markdown('**Проголосуй за самого работящего и главного халявщика команды!**')
+    st.markdown('**Проголосуй анонимно за самого работящего и главного халявщика команды!**')
+    st.markdown('️ Голосование анонимное — никто не увидит твой выбор')
     st.markdown('---')
     
-    # Выбор кто голосует
     voter = st.selectbox('👤 Кто голосует?', ['— Выбери себя —'] + EMPLOYEES)
     
     if voter == '— Выбери себя —':
         st.warning('⚠️ Выбери своё имя чтобы проголосовать')
     else:
-        # Проверяем не голосовал ли уже
         already_voted = voter in st.session_state.votes['voters']
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader('💪 Самый работящий')
-            st.markdown('Кто вкалывал больше всех на этой неделе?')
+        if already_voted:
+            st.success('✅ Ты уже проголосовал на этой неделе! Результаты ниже.')
+        else:
+            col1, col2 = st.columns(2)
             
-            if already_voted:
-                st.info(f'Ты уже голосовал! Твой выбор: {st.session_state.votes["hardworker"].get(voter, "-")}')
-            else:
+            with col1:
+                st.subheader('💪 Самый работящий')
+                st.markdown('Кто вкалывал больше всех на этой неделе?')
+                
                 hardworker_choice = st.radio(
                     'Выбери работящего:',
                     [e for e in EMPLOYEES if e != voter],
@@ -437,46 +477,48 @@ elif page == 'votes':
                 if st.button('✅ Голосовать за работящего', type='primary', use_container_width=True):
                     st.session_state.votes['hardworker'][voter] = hardworker_choice
                     st.session_state.votes['voters'].append(voter)
-                    add_to_feed(f'{voter} проголосовал за работящего: {hardworker_choice} 💪', '🗳️')
-                    st.success(f'Голос засчитан! {hardworker_choice} получает +1 голос')
+                    # НЕ добавляем в ленту кто за кого голосовал!
+                    add_to_feed(f'Проведено анонимное голосование за работящего недели 💪', '️')
+                    st.success('✅ Голос засчитан анонимно!')
                     st.rerun()
-        
-        with col2:
-            st.subheader('😴 Главный халявщик')
-            st.markdown('Кто больше всех проебался на этой неделе?')
             
-            if already_voted:
-                st.info(f'Ты уже голосовал! Твой выбор: {st.session_state.votes["slacker"].get(voter, "-")}')
-            else:
+            with col2:
+                st.subheader('😴 Главный халявщик')
+                st.markdown('Кто больше всех проебался на этой неделе?')
+                
                 slacker_choice = st.radio(
                     'Выбери халявщика:',
                     [e for e in EMPLOYEES if e != voter],
                     key='sl_vote'
                 )
-                if st.button(' Голосовать за халявщика', type='primary', use_container_width=True):
+                if st.button('🗳️ Голосовать за халявщика', type='primary', use_container_width=True):
                     st.session_state.votes['slacker'][voter] = slacker_choice
                     if voter not in st.session_state.votes['voters']:
                         st.session_state.votes['voters'].append(voter)
-                    add_to_feed(f'{voter} проголосовал за халявщика: {slacker_choice} 😴', '🗳️')
-                    st.success(f'Голос засчитан! {slacker_choice} получает +1 голос')
+                    add_to_feed(f'Проведено анонимное голосование за халявщика недели 😴', '🗳️')
+                    st.success('✅ Голос засчитан анонимно!')
                     st.rerun()
     
     st.markdown('---')
     
-    # Результаты голосования
-    st.subheader('📊 Текущие результаты')
+    # Результаты голосования (только итоги, без имён голосовавших)
+    st.subheader('📊 Результаты голосования')
     
-    # Считаем голоса
     hw_votes = {}
     sl_votes = {}
     for emp in EMPLOYEES:
         hw_votes[emp] = sum(1 for v in st.session_state.votes['hardworker'].values() if v == emp)
         sl_votes[emp] = sum(1 for v in st.session_state.votes['slacker'].values() if v == emp)
     
+    total_voters = len(st.session_state.votes['voters'])
+    st.markdown(f'**Проголосовало человек:** {total_voters} из {len(EMPLOYEES)}')
+    
+    st.markdown('---')
+    
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown('### 💪 Работящий (больше голосов = лучше)')
+        st.markdown('### 💪 Работящий недели')
         hw_df = pd.DataFrame([
             {'Сотрудник': emp, 'Голоса': hw_votes[emp]} 
             for emp in EMPLOYEES
@@ -490,7 +532,7 @@ elif page == 'votes':
                 st.markdown(f'{row["Сотрудник"]}: 0')
     
     with col2:
-        st.markdown('### 😴 Халявщик (больше голосов = хуже)')
+        st.markdown('### 😴 Халявщик недели')
         sl_df = pd.DataFrame([
             {'Сотрудник': emp, 'Голоса': sl_votes[emp]} 
             for emp in EMPLOYEES
@@ -535,14 +577,13 @@ elif page == 'votes':
     
     st.markdown('---')
     
-    # Сброс голосования
     if st.button('🔄 Начать новое голосование', use_container_width=True):
         st.session_state.votes = {
             'hardworker': {},
             'slacker': {},
             'voters': []
         }
-        add_to_feed('Начато новое голосование недели! 🗳️', '🔄')
+        add_to_feed('🔄 Начато новое голосование недели!', '🗳️')
         st.success('Голосование сброшено!')
         st.rerun()
 
@@ -566,7 +607,7 @@ elif page == 'rating':
     df = pd.DataFrame(stats_list).sort_values('Часы', ascending=False).reset_index(drop=True)
     
     if df['Часы'].sum() == 0:
-        st.warning('⚠️ Нет данных за этот месяц. Введите часы на странице "Ввод часов".')
+        st.warning('️ Нет данных за этот месяц. Введите часы на странице "Ввод часов".')
     else:
         st.markdown('---')
         st.subheader('🏆 Подиум')
@@ -576,7 +617,7 @@ elif page == 'rating':
             with col1:
                 st.markdown(f"""
                 <div style="background:#C0C0C0; padding:20px; border-radius:10px; text-align:center;">
-                <h2></h2><h3>{df.iloc[1]["Сотрудник"]}</h3>
+                <h2>🥈</h2><h3>{df.iloc[1]["Сотрудник"]}</h3>
                 <p><b>{df.iloc[1]["Часы"]:.1f} ч</b></p>
                 <p>Переработка: {df.iloc[1]["Переработка"]:.1f} ч</p>
                 </div>
