@@ -5,7 +5,7 @@ from datetime import date
 
 st.set_page_config(
     page_title="Учёт рабочего времени",
-    page_icon="",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -45,7 +45,7 @@ def calc_stats(hours, norm, workdays):
     remaining_days = max(0, workdays - workdays_worked)
     return total, overtime, efficiency, remaining_hours, workdays_worked, remaining_days
 
-st.sidebar.title('📊 Учет рабочего времени')
+st.sidebar.title(' Учет рабочего времени')
 
 st.sidebar.markdown('### 💾 Управление данными')
 data_json = json.dumps(st.session_state.hours_data, ensure_ascii=False)
@@ -64,9 +64,11 @@ if uploaded_file is not None:
         st.session_state.hours_data = new_data
         st.sidebar.success('✅ Данные загружены!')
     except Exception as e:
-        st.sidebar.error(f'❌ Ошибка: {e}')
+        st.sidebar.error(f' Ошибка: {e}')
 
 st.sidebar.markdown('---')
+
+# ВАЖНО: эмодзи должны совпадать с условиями ниже!
 page = st.sidebar.radio('📋 Меню', ['📊 Дашборд', '✏️ Ввод часов', '🏆 Рейтинг'])
 month = st.sidebar.selectbox('📅 Месяц', MONTHS)
 
@@ -82,7 +84,7 @@ st.sidebar.markdown(f'Норма часов: **{norm}**')
 # ============================================
 # ДАШБОРД
 # ============================================
-if page == ' Дашборд':
+if page == '📊 Дашборд':
     st.title(f'📊 Дашборд — {month} 2026')
     
     stats_list = []
@@ -103,7 +105,7 @@ if page == ' Дашборд':
     
     df = pd.DataFrame(stats_list)
     
-    st.subheader(' Статистика по каждому сотруднику')
+    st.subheader('📋 Статистика по каждому сотруднику')
     st.dataframe(df, use_container_width=True, hide_index=True)
     
     st.markdown('---')
@@ -155,7 +157,7 @@ if page == ' Дашборд':
         st.metric('✅ Выполнили норму', f'{completed} чел.')
 
 # ============================================
-# ВВОД ЧАСОВ (УПРОЩЁННАЯ ВЕРСИЯ)
+# ВВОД ЧАСОВ (ТАБЛИЦА)
 # ============================================
 elif page == '✏️ Ввод часов':
     st.title(f'✏️ Ввод часов — {month} 2026')
@@ -171,99 +173,93 @@ elif page == '✏️ Ввод часов':
     cal = month_info
     days_count = DAYS_IN_MONTH[month]
     
-    # Легенда
-    st.markdown('**📌 Легенда:**')
-    st.markdown('🔴 **Красный** — Праздник | 🟠 **Оранжевый** — Сокращённый | 🟣 **Фиолетовый** — Выходной | ⚪ **Обычный** — Рабочий')
-    
-    st.markdown('---')
-    
-    # Ввод по сотрудникам
+    # Формируем таблицу
+    table_data = []
     for emp in EMPLOYEES:
-        st.subheader(f'👤 {emp}')
         hours = get_hours(month, emp)
+        row = {'Сотрудник': emp}
         
-        # Создаём колонки для дней (по 7 в ряд - неделя)
-        day_values = {}
+        for day in range(1, days_count + 1):
+            h = float(hours[day-1]) if day-1 < len(hours) else 0.0
+            row[str(day)] = h
         
-        for week in range(5):  # 5 недель
-            week_days = []
-            for day_in_week in range(7):
-                day = week * 7 + day_in_week + 1
-                if day > days_count:
-                    break
-                week_days.append(day)
-            
-            if not week_days:
-                break
-            
-            # Заголовки дней
-            cols = st.columns(len(week_days) + 1)  # +1 для метки недели
-            
-            # Метка недели
-            with cols[0]:
-                st.markdown(f'**Нед {week+1}**')
-            
-            # Ячейки дней
-            for i, day in enumerate(week_days):
-                h = float(hours[day-1]) if day-1 < len(hours) else 0.0
-                
-                # Определяем тип дня
-                if day in cal['holidays']:
-                    day_label = f'🔴{day}'
-                elif day in cal['short']:
-                    day_label = f'🟠{day}'
-                elif day in cal['weekends']:
-                    day_label = f'🟣{day}'
-                else:
-                    day_label = str(day)
-                
-                with cols[i + 1]:
-                    key = f'{emp}_day{day}'
-                    val = st.number_input(
-                        day_label,
-                        min_value=0.0,
-                        max_value=24.0,
-                        value=h,
-                        step=0.5,
-                        key=key
-                    )
-                    day_values[day] = val
+        total = sum(row[str(day)] for day in range(1, days_count + 1))
+        overtime = sum(max(0, row[str(day)] - 8) for day in range(1, days_count + 1) if row[str(day)] > 0)
+        row['ИТОГО'] = round(total, 1)
+        row['ПЕРЕРАБ'] = round(overtime, 1)
         
-        # ИТОГО и ПЕРЕРАБ
-        total = sum(day_values.values())
-        overtime = sum(max(0, v - 8) for v in day_values.values() if v > 0)
+        table_data.append(row)
+    
+    df_input = pd.DataFrame(table_data)
+    
+    # Настройка колонок
+    column_config = {
+        'Сотрудник': st.column_config.TextColumn('Сотрудник', width='medium', disabled=True),
+        'ИТОГО': st.column_config.NumberColumn('ИТОГО', format='%.1f', width='small', disabled=True),
+        'ПЕРЕРАБ': st.column_config.NumberColumn('ПЕРЕРАБ', format='%.1f', width='small', disabled=True),
+    }
+    
+    for day in range(1, days_count + 1):
+        if day in cal['holidays']:
+            day_label = f'🔴{day}'
+        elif day in cal['short']:
+            day_label = f'🟠{day}'
+        elif day in cal['weekends']:
+            day_label = f'🟣{day}'
+        else:
+            day_label = str(day)
         
-        col1, col2 = st.columns(2)
-        with col1:
-            st.success(f'**ИТОГО: {total:.1f} ч**')
-        with col2:
-            st.warning(f'**ПЕРЕРАБОТКА: {overtime:.1f} ч**')
-        
-        st.markdown('---')
+        column_config[str(day)] = st.column_config.NumberColumn(
+            day_label,
+            min_value=0.0,
+            max_value=24.0,
+            step=0.5,
+            format='%.1f',
+            width='small'
+        )
+    
+    st.markdown('**💡 Кликай на ячейку и вводи часы. Эмодзи показывают тип дня.**')
+    
+    edited_df = st.data_editor(
+        df_input,
+        column_config=column_config,
+        hide_index=True,
+        use_container_width=True,
+        num_rows='fixed',
+        key='hours_table'
+    )
+    
+    # Пересчёт ИТОГО и ПЕРЕРАБ
+    for idx in range(len(edited_df)):
+        total = sum(float(edited_df.iloc[idx][str(day)]) for day in range(1, days_count + 1))
+        overtime = sum(max(0, float(edited_df.iloc[idx][str(day)]) - 8) 
+                      for day in range(1, days_count + 1) 
+                      if float(edited_df.iloc[idx][str(day)]) > 0)
+        edited_df.at[edited_df.index[idx], 'ИТОГО'] = round(total, 1)
+        edited_df.at[edited_df.index[idx], 'ПЕРЕРАБ'] = round(overtime, 1)
     
     # Кнопка сохранения
+    st.markdown('---')
     if st.button('💾 СОХРАНИТЬ ВСЕ ДАННЫЕ', type='primary', use_container_width=True):
-        for emp in EMPLOYEES:
-            new_hours = []
-            for day in range(1, days_count + 1):
-                key = f'{emp}_day{day}'
-                val = st.session_state.get(key, 0.0)
-                try:
-                    val = float(val)
-                except:
-                    val = 0.0
-                new_hours.append(val)
-            while len(new_hours) < 31:
-                new_hours.append(0.0)
-            save_hours(month, emp, new_hours[:31])
+        for idx, emp in enumerate(EMPLOYEES):
+            if idx < len(edited_df):
+                new_hours = [float(edited_df.iloc[idx][str(day)]) for day in range(1, days_count + 1)]
+                while len(new_hours) < 31:
+                    new_hours.append(0.0)
+                save_hours(month, emp, new_hours[:31])
         st.success('✅ Все данные сохранены!')
         st.balloons()
+    
+    # Легенда
+    st.markdown('---')
+    st.markdown('** Легенда:** 🔴 Праздник | 🟠 Сокращённый |  Выходной | ⚪ Рабочий')
+    st.markdown('💡 **Переработка** = всё что больше 8 часов в день')
 
 # ============================================
 # РЕЙТИНГ
 # ============================================
-elif page == ' Рейтинг':
-    st.title(f' Рейтинг — {month}')
+elif page == '🏆 Рейтинг':
+    st.title(f'🏆 Рейтинг — {month}')
     
     stats_list = []
     for emp in EMPLOYEES:
