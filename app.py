@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import json
 from datetime import date, datetime
+import os
 
 st.set_page_config(
     page_title="Учёт рабочего времени",
@@ -9,6 +10,33 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# ============================================
+# НАСТРОЙКИ ФАЙЛА ДАННЫХ
+# ============================================
+DATA_FILE = "hours_data.json"
+
+def load_data():
+    """Загрузка данных из файла при старте"""
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def save_data():
+    """Автоматическое сохранение всех данных в файл"""
+    data = {
+        'hours': st.session_state.hours_data,
+        'feed': st.session_state.feed,
+        'votes': st.session_state.votes,
+        'checkins': st.session_state.checkins,
+        'locked': st.session_state.locked_data  # ← новое поле
+    }
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 EMPLOYEES = ['Виталя', 'Василий', 'Александр П', 'Александр О', 'Игорь', 'Стас']
 MONTHS = ['ИЮЛЬ', 'АВГУСТ', 'СЕНТЯБРЬ', 'ОКТЯБРЬ', 'НОЯБРЬ', 'ДЕКАБРЬ']
@@ -26,20 +54,15 @@ MONTH_NUM = {'ИЮЛЬ': 7, 'АВГУСТ': 8, 'СЕНТЯБРЬ': 9, 'ОКТЯ�
 DAYS_IN_MONTH = {'ИЮЛЬ': 31, 'АВГУСТ': 31, 'СЕНТЯБРЬ': 30, 'ОКТЯБРЬ': 31, 'НОЯБРЬ': 30, 'ДЕКАБРЬ': 31}
 
 # ============================================
-# ИНИЦИАЛИЗАЦИЯ ДАННЫХ
+# ИНИЦИАЛИЗАЦИЯ ДАННЫХ (с загрузкой из файла)
 # ============================================
 if 'hours_data' not in st.session_state:
-    st.session_state.hours_data = {}
-if 'feed' not in st.session_state:
-    st.session_state.feed = []
-if 'votes' not in st.session_state:
-    st.session_state.votes = {
-        'hardworker': {},
-        'slacker': {},
-        'voters': []
-    }
-if 'checkins' not in st.session_state:
-    st.session_state.checkins = {}
+    loaded = load_data()
+    st.session_state.hours_data = loaded.get('hours', {})
+    st.session_state.feed = loaded.get('feed', [])
+    st.session_state.votes = loaded.get('votes', {'hardworker': {}, 'slacker': {}, 'voters': []})
+    st.session_state.checkins = loaded.get('checkins', {})
+    st.session_state.locked_data = loaded.get('locked', {})  # ← блокировки
 
 def get_hours(month, emp):
     key = f"{month}_{emp}"
@@ -50,6 +73,16 @@ def get_hours(month, emp):
 def save_hours(month, emp, hours):
     key = f"{month}_{emp}"
     st.session_state.hours_data[key] = hours
+
+def is_locked(month, emp):
+    """Проверка, заблокированы ли данные сотрудника за месяц"""
+    key = f"{month}_{emp}"
+    return st.session_state.locked_data.get(key, False)
+
+def lock_data(month, emp):
+    """Блокировка данных после сохранения"""
+    key = f"{month}_{emp}"
+    st.session_state.locked_data[key] = True
 
 def add_to_feed(message, emoji=''):
     now = datetime.now().strftime('%d.%m %H:%M')
@@ -88,14 +121,38 @@ def mark_checkin(emp, month, day):
 st.sidebar.title('📊 Учет рабочего времени')
 
 st.sidebar.markdown('### 💾 Управление данными')
+st.sidebar.info('✅ Данные сохраняются автоматически в файл')
+
+# Экспорт в Excel
+if st.sidebar.button('📥 Экспорт в Excel', use_container_width=True):
+    try:
+        excel_data = []
+        for month in MONTHS:
+            for emp in EMPLOYEES:
+                hours = get_hours(month, emp)
+                row = {'Месяц': month, 'Сотрудник': emp}
+                for day in range(1, DAYS_IN_MONTH[month] + 1):
+                    row[f'День {day}'] = hours[day-1]
+                row['ИТОГО'] = sum(hours[:DAYS_IN_MONTH[month]])
+                excel_data.append(row)
+        
+        df_export = pd.DataFrame(excel_data)
+        excel_file = f'hours_export_{date.today().strftime("%Y%m%d")}.xlsx'
+        df_export.to_excel(excel_file, index=False)
+        st.sidebar.success(f'✅ Экспортировано в {excel_file}')
+    except Exception as e:
+        st.sidebar.error(f'❌ Ошибка: {e}')
+
 data_json = json.dumps({
     'hours': st.session_state.hours_data,
     'feed': st.session_state.feed,
     'votes': st.session_state.votes,
-    'checkins': st.session_state.checkins
+    'checkins': st.session_state.checkins,
+    'locked': st.session_state.locked_data
 }, ensure_ascii=False)
+
 st.sidebar.download_button(
-    label='📥 Скачать бэкап',
+    label='📥 Скачать бэкап JSON',
     data=data_json,
     file_name=f'backup_{date.today().strftime("%Y%m%d")}.json',
     mime='application/json',
@@ -110,7 +167,9 @@ if uploaded_file is not None:
         st.session_state.feed = new_data.get('feed', [])
         st.session_state.votes = new_data.get('votes', {'hardworker': {}, 'slacker': {}, 'voters': []})
         st.session_state.checkins = new_data.get('checkins', {})
-        st.sidebar.success('✅ Данные загружены!')
+        st.session_state.locked_data = new_data.get('locked', {})
+        save_data()  # ← сохраняем после загрузки
+        st.sidebar.success('✅ Данные загружены и сохранены!')
     except Exception as e:
         st.sidebar.error(f'❌ Ошибка: {e}')
 
@@ -129,7 +188,7 @@ st.sidebar.markdown(f'Рабочих дней: **{workdays}**')
 st.sidebar.markdown(f'Норма часов: **{norm}**')
 
 # ============================================
-# ДАШБОРД
+# ДАШБОРД (без изменений)
 # ============================================
 if page == 'dashboard':
     st.title(f'📊 Дашборд — {month} 2026')
@@ -139,8 +198,9 @@ if page == 'dashboard':
         hours = get_hours(month, emp)
         total, overtime, efficiency, remaining_hours, workdays_worked, remaining_days = calc_stats(hours, norm, workdays)
         streak = get_checkin_streak(emp)
+        locked_status = '🔒' if is_locked(month, emp) else '🔓'
         stats_list.append({
-            'Сотрудник': emp,
+            'Сотрудник': f'{locked_status} {emp}',
             'Отработано часов': total,
             'Норма часов': norm,
             'Осталось часов': remaining_hours,
@@ -230,7 +290,7 @@ if page == 'dashboard':
         st.markdown('---')
 
 # ============================================
-# ВВОД ЧАСОВ С ЦВЕТНЫМИ КОЛОНКАМИ
+# ВВОД ЧАСОВ С БЛОКИРОВКОЙ
 # ============================================
 elif page == 'input':
     st.title(f'️ Ввод часов — {month} 2026')
@@ -247,10 +307,9 @@ elif page == 'input':
     days_count = DAYS_IN_MONTH[month]
     
     # CSS для окраски колонок таблицы
-    # Колонка 1 = Сотрудник, колонки 2-32 = дни 1-31, 33 = ИТОГО, 34 = ПЕРЕРАБ
     css_rules = []
     for day in range(1, days_count + 1):
-        col_index = day + 1  # +1 потому что первая колонка "Сотрудник"
+        col_index = day + 1
         if day in cal['holidays']:
             css_rules.append(f'div[data-testid="stDataFrame"] table tr th:nth-child({col_index}), div[data-testid="stDataFrame"] table tr td:nth-child({col_index}) {{ background-color: #FCA5A5 !important; color: #991B1B !important; }}')
         elif day in cal['short']:
@@ -258,14 +317,12 @@ elif page == 'input':
         elif day in cal['weekends']:
             css_rules.append(f'div[data-testid="stDataFrame"] table tr th:nth-child({col_index}), div[data-testid="stDataFrame"] table tr td:nth-child({col_index}) {{ background-color: #E9D5FF !important; color: #6B21A8 !important; }}')
     
-    # Колонки ИТОГО и ПЕРЕРАБ
     css_rules.append('div[data-testid="stDataFrame"] table tr th:nth-child(33), div[data-testid="stDataFrame"] table tr td:nth-child(33) { background-color: #86EFAC !important; color: #064E3B !important; font-weight: bold; }')
     css_rules.append('div[data-testid="stDataFrame"] table tr th:nth-child(34), div[data-testid="stDataFrame"] table tr td:nth-child(34) { background-color: #FDE047 !important; color: #713F12 !important; font-weight: bold; }')
     
     css_string = '\n'.join(css_rules)
     st.markdown(f'<style>{css_string}</style>', unsafe_allow_html=True)
     
-    # Визуальная легенда дней над таблицей
     st.markdown('**📅 Календарь месяца (цветные ячейки = выходные/праздники/сокращённые):**')
     
     legend_html = '<div style="display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 15px;">'
@@ -310,6 +367,7 @@ elif page == 'input':
     
     df_input = pd.DataFrame(table_data)
     
+    # Конфигурация колонок с блокировкой
     column_config = {
         'Сотрудник': st.column_config.TextColumn('Сотрудник', width='medium', disabled=True),
         'ИТОГО': st.column_config.NumberColumn('ИТОГО', format='%.1f', width='small', disabled=True),
@@ -335,7 +393,7 @@ elif page == 'input':
             width='small'
         )
     
-    st.markdown('**💡 Кликай на ячейку и вводи часы. Цветные колонки показывают тип дня.**')
+    st.markdown('**💡 Кликай на ячейку и вводи часы. После нажатия "СОХРАНИТЬ И ЗАФИКСИРОВАТЬ" изменить нельзя!**')
     
     edited_df = st.data_editor(
         df_input,
@@ -356,9 +414,14 @@ elif page == 'input':
     
     st.markdown('---')
     
-    if st.button('💾 СОХРАНИТЬ ВСЕ ДАННЫЕ', type='primary', use_container_width=True):
+    # Кнопка сохранения с блокировкой
+    if st.button('💾 СОХРАНИТЬ И ЗАФИКСИРОВАТЬ', type='primary', use_container_width=True):
         for idx, emp in enumerate(EMPLOYEES):
             if idx < len(edited_df):
+                # Проверяем, не заблокировано ли уже
+                if is_locked(month, emp):
+                    continue
+                
                 new_hours = []
                 total_emp = 0
                 days_worked = 0
@@ -376,15 +439,31 @@ elif page == 'input':
                     new_hours.append(0.0)
                 save_hours(month, emp, new_hours[:31])
                 
+                # Блокируем данные после сохранения
+                lock_data(month, emp)
+                
                 if total_emp > 0:
                     add_to_feed(
-                        f'{emp} проставил часы за {month}: {total_emp:.1f} ч ({days_worked} дн.)',
+                        f'{emp} проставил часы за {month}: {total_emp:.1f} ч ({days_worked} дн.) 🔒',
                         '⏱'
                     )
                     mark_checkin(emp, month, days_worked)
         
-        st.success('✅ Все данные сохранены! Записи добавлены в ленту активности.')
+        # Сохраняем всё в файл
+        save_data()
+        
+        st.success('✅ Все данные сохранены и ЗАФИКСИРОВАНЫ! Изменить нельзя.')
         st.balloons()
+        st.rerun()
+    
+    # Показываем статус блокировки
+    st.markdown('---')
+    st.markdown('**🔒 Статус блокировки:**')
+    for emp in EMPLOYEES:
+        if is_locked(month, emp):
+            st.success(f'✅ {emp} — данные зафиксированы 🔒')
+        else:
+            st.warning(f'⚠️ {emp} — можно редактировать')
     
     st.markdown('---')
     st.markdown('**📌 Легенда:**')
@@ -397,7 +476,7 @@ elif page == 'input':
     st.markdown('💡 **Переработка** = всё что больше 8 часов в день')
 
 # ============================================
-# ЛЕНТА АКТИВНОСТИ
+# ЛЕНТА АКТИВНОСТИ (без изменений)
 # ============================================
 elif page == 'activity':
     st.title('📱 Лента активности')
@@ -440,11 +519,12 @@ elif page == 'activity':
     
     if st.button('🗑️ Очистить ленту', use_container_width=True):
         st.session_state.feed = []
+        save_data()  # ← сохраняем после очистки
         st.success('Лента очищена!')
         st.rerun()
 
 # ============================================
-# ГОЛОСОВАНИЯ (АНОНИМНЫЕ)
+# ГОЛОСОВАНИЯ (с автосохранением)
 # ============================================
 elif page == 'votes':
     st.title('️ Голосования недели')
@@ -477,8 +557,8 @@ elif page == 'votes':
                 if st.button('✅ Голосовать за работящего', type='primary', use_container_width=True):
                     st.session_state.votes['hardworker'][voter] = hardworker_choice
                     st.session_state.votes['voters'].append(voter)
-                    # НЕ добавляем в ленту кто за кого голосовал!
                     add_to_feed(f'Проведено анонимное голосование за работящего недели 💪', '️')
+                    save_data()  # ← сохраняем
                     st.success('✅ Голос засчитан анонимно!')
                     st.rerun()
             
@@ -496,12 +576,12 @@ elif page == 'votes':
                     if voter not in st.session_state.votes['voters']:
                         st.session_state.votes['voters'].append(voter)
                     add_to_feed(f'Проведено анонимное голосование за халявщика недели 😴', '🗳️')
+                    save_data()  # ← сохраняем
                     st.success('✅ Голос засчитан анонимно!')
                     st.rerun()
     
     st.markdown('---')
     
-    # Результаты голосования (только итоги, без имён голосовавших)
     st.subheader('📊 Результаты голосования')
     
     hw_votes = {}
@@ -547,7 +627,6 @@ elif page == 'votes':
     
     st.markdown('---')
     
-    # Победители
     top_hw = max(hw_votes, key=hw_votes.get) if any(v > 0 for v in hw_votes.values()) else None
     top_sl = max(sl_votes, key=sl_votes.get) if any(v > 0 for v in sl_votes.values()) else None
     
@@ -584,11 +663,12 @@ elif page == 'votes':
             'voters': []
         }
         add_to_feed('🔄 Начато новое голосование недели!', '🗳️')
+        save_data()  # ← сохраняем
         st.success('Голосование сброшено!')
         st.rerun()
 
 # ============================================
-# РЕЙТИНГ
+# РЕЙТИНГ (без изменений)
 # ============================================
 elif page == 'rating':
     st.title(f'🏆 Рейтинг — {month}')
@@ -658,7 +738,7 @@ elif page == 'rating':
         with col2:
             st.markdown(f"""
             <div style="background:linear-gradient(135deg, #8B4513, #654321); padding:20px; border-radius:10px; border:2px solid #8B4513;">
-            <h2>📜 АНТИНАГРАДА</h2><h3 style="color:#FFD700;">ЛОХ</h3>
+            <h2>📜 АНТИНАГРАДА</H2><h3 style="color:#FFD700;">ЛОХ</h3>
             <p><b>{df.iloc[-1]["Сотрудник"]}</b></p>
             <p>{df.iloc[-1]["Часы"]:.1f} часов | эффективность {df.iloc[-1]["Эффективность %"]:.0f}%</p>
             </div>
