@@ -5,7 +5,7 @@ from datetime import date
 
 st.set_page_config(
     page_title="Учёт рабочего времени",
-    page_icon="",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -25,7 +25,6 @@ MONTHS_DATA = {
 MONTH_NUM = {'ИЮЛЬ': 7, 'АВГУСТ': 8, 'СЕНТЯБРЬ': 9, 'ОКТЯБРЬ': 10, 'НОЯБРЬ': 11, 'ДЕКАБРЬ': 12}
 DAYS_IN_MONTH = {'ИЮЛЬ': 31, 'АВГУСТ': 31, 'СЕНТЯБРЬ': 30, 'ОКТЯБРЬ': 31, 'НОЯБРЬ': 30, 'ДЕКАБРЬ': 31}
 
-# Инициализация данных
 if 'hours_data' not in st.session_state:
     st.session_state.hours_data = {}
 
@@ -48,10 +47,7 @@ def calc_stats(hours, norm, workdays):
     remaining_days = max(0, workdays - workdays_worked)
     return total, overtime, efficiency, remaining_hours, workdays_worked, remaining_days
 
-# ============================================
-# БОКОВАЯ ПАНЕЛЬ
-# ============================================
-st.sidebar.title('📊 Учет рабочего времени')
+st.sidebar.title(' Учет рабочего времени')
 
 st.sidebar.markdown('### 💾 Управление данными')
 data_json = json.dumps(st.session_state.hours_data, ensure_ascii=False)
@@ -70,7 +66,7 @@ if uploaded_file is not None:
         st.session_state.hours_data = new_data
         st.sidebar.success('✅ Данные загружены!')
     except Exception as e:
-        st.sidebar.error(f'❌ Ошибка: {e}')
+        st.sidebar.error(f' Ошибка: {e}')
 
 st.sidebar.markdown('---')
 
@@ -90,7 +86,7 @@ st.sidebar.markdown(f'Норма часов: **{norm}**')
 # ДАШБОРД
 # ============================================
 if page == 'dashboard':
-    st.title(f' Дашборд — {month} 2026')
+    st.title(f'📊 Дашборд — {month} 2026')
     
     stats_list = []
     for emp in EMPLOYEES:
@@ -110,7 +106,7 @@ if page == 'dashboard':
     
     df = pd.DataFrame(stats_list)
     
-    st.subheader(' Статистика по каждому сотруднику')
+    st.subheader('📋 Статистика по каждому сотруднику')
     st.dataframe(df, use_container_width=True, hide_index=True)
     
     st.markdown('---')
@@ -121,12 +117,12 @@ if page == 'dashboard':
         if not df.empty:
             st.bar_chart(df.set_index('Сотрудник')[['Отработано часов', 'Норма часов']])
     with col2:
-        st.subheader(' Переработка по сотрудникам')
+        st.subheader('🔥 Переработка по сотрудникам')
         if not df.empty:
             st.bar_chart(df.set_index('Сотрудник')['Переработка'])
     
     st.markdown('---')
-    st.subheader('🏆 Статистика')
+    st.subheader(' Статистика')
     col1, col2, col3 = st.columns(3)
     with col1:
         top_worker = df.loc[df['Отработано часов'].idxmax()]
@@ -138,7 +134,7 @@ if page == 'dashboard':
         st.metric('✅ Выполнили норму', f'{completed} чел.')
     
     st.markdown('---')
-    st.subheader(' Детальная статистика по сотрудникам')
+    st.subheader('📊 Детальная статистика по сотрудникам')
     
     df_sorted = df.sort_values('Отработано часов', ascending=False).reset_index(drop=True)
     leader_name = df_sorted.iloc[0]['Сотрудник'] if len(df_sorted) > 0 else None
@@ -168,7 +164,7 @@ if page == 'dashboard':
         
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown(f"** % выполнения по часам:** {row['Процент выполнения']}")
+            st.markdown(f"**📊 % выполнения по часам:** {row['Процент выполнения']}")
         with col2:
             days_percent = (row['Отработано дней'] / workdays * 100) if workdays > 0 else 0
             st.markdown(f"**📅 % выполнения по дням:** {days_percent:.1f}%")
@@ -186,13 +182,13 @@ if page == 'dashboard':
         st.markdown('---')
 
 # ============================================
-# ВВОД ЧАСОВ (С АВТОСОХРАНЕНИЕМ)
+# ВВОД ЧАСОВ (БЕЗ ON_CHANGE)
 # ============================================
 elif page == 'input':
     st.title(f'✏️ Ввод часов — {month} 2026')
     
     col1, col2, col3, col4 = st.columns(4)
-    with col1: st.info(f'📅 Рабочих дней: **{workdays}**')
+    with col1: st.info(f' Рабочих дней: **{workdays}**')
     with col2: st.info(f'⏱ Норма часов: **{norm}**')
     with col3: st.info(f' Праздников: **{len(month_info["holidays"])}**')
     with col4: st.info(f'🟠 Сокращённых: **{len(month_info["short"])}**')
@@ -202,25 +198,6 @@ elif page == 'input':
     cal = month_info
     days_count = DAYS_IN_MONTH[month]
     
-    # Функция для автосохранения
-    def save_table_data():
-        """Сохраняет данные из таблицы в session_state"""
-        for emp_idx, emp in enumerate(EMPLOYEES):
-            if emp_idx < len(st.session_state.edited_table):
-                row_data = st.session_state.edited_table.iloc[emp_idx]
-                new_hours = []
-                for day in range(1, days_count + 1):
-                    val = row_data[str(day)]
-                    try:
-                        val = float(val)
-                    except:
-                        val = 0.0
-                    new_hours.append(val)
-                while len(new_hours) < 31:
-                    new_hours.append(0.0)
-                save_hours(month, emp, new_hours[:31])
-    
-    # Создаём таблицу
     table_data = []
     for emp in EMPLOYEES:
         hours = get_hours(month, emp)
@@ -247,7 +224,7 @@ elif page == 'input':
     
     for day in range(1, days_count + 1):
         if day in cal['holidays']:
-            day_label = f'🔴{day}'
+            day_label = f'{day}'
         elif day in cal['short']:
             day_label = f'🟠{day}'
         elif day in cal['weekends']:
@@ -264,17 +241,15 @@ elif page == 'input':
             width='small'
         )
     
-    st.markdown('**💡 Кликай на ячейку и вводи часы. Данные сохраняются автоматически!**')
+    st.markdown('**💡 Кликай на ячейку и вводи часы. Нажми кнопку "СОХРАНИТЬ" когда закончишь!**')
     
-    # Редактируемая таблица с автосохранением
     edited_df = st.data_editor(
         df_input,
         column_config=column_config,
         hide_index=True,
         use_container_width=True,
         num_rows='fixed',
-        key='edited_table',
-        on_change=save_table_data
+        key='hours_table'
     )
     
     # Пересчёт ИТОГО и ПЕРЕРАБ
@@ -286,11 +261,28 @@ elif page == 'input':
         edited_df.at[edited_df.index[idx], 'ИТОГО'] = round(total, 1)
         edited_df.at[edited_df.index[idx], 'ПЕРЕРАБ'] = round(overtime, 1)
     
-    # Индикатор сохранения
-    st.success('✅ Данные сохраняются автоматически при каждом изменении')
+    st.markdown('---')
+    
+    # Кнопка сохранения
+    if st.button('💾 СОХРАНИТЬ ВСЕ ДАННЫЕ', type='primary', use_container_width=True):
+        for idx, emp in enumerate(EMPLOYEES):
+            if idx < len(edited_df):
+                new_hours = []
+                for day in range(1, days_count + 1):
+                    val = edited_df.iloc[idx][str(day)]
+                    try:
+                        val = float(val)
+                    except:
+                        val = 0.0
+                    new_hours.append(val)
+                while len(new_hours) < 31:
+                    new_hours.append(0.0)
+                save_hours(month, emp, new_hours[:31])
+        st.success('✅ Все данные сохранены!')
+        st.balloons()
     
     st.markdown('---')
-    st.markdown('**📌 Легенда:** 🔴 Праздник | 🟠 Сокращённый | 🟣 Выходной | ⚪ Рабочий')
+    st.markdown('**📌 Легенда:** 🔴 Праздник | 🟠 Сокращённый |  Выходной | ⚪ Рабочий')
     st.markdown('💡 **Переработка** = всё что больше 8 часов в день')
 
 # ============================================
@@ -313,7 +305,7 @@ elif page == 'rating':
     df = pd.DataFrame(stats_list).sort_values('Часы', ascending=False).reset_index(drop=True)
     
     if df['Часы'].sum() == 0:
-        st.warning('⚠️ Нет данных за этот месяц. Введите часы на странице "Ввод часов".')
+        st.warning('️ Нет данных за этот месяц. Введите часы на странице "Ввод часов".')
     else:
         st.markdown('---')
         st.subheader('🏆 Подиум')
@@ -331,7 +323,7 @@ elif page == 'rating':
             with col2:
                 st.markdown(f"""
                 <div style="background:linear-gradient(135deg, #FFD700, #FFA500); padding:30px; border-radius:10px; text-align:center; border:3px solid gold;">
-                <h1>🥇</h1><h2>{df.iloc[0]["Сотрудник"]}</h2>
+                <h1></h1><h2>{df.iloc[0]["Сотрудник"]}</h2>
                 <p style="font-size:24px;"><b>{df.iloc[0]["Часы"]:.1f} ч</b></p>
                 <p>Переработка: {df.iloc[0]["Переработка"]:.1f} ч</p>
                 <p style="font-size:20px; color:#000;"><b>ЕБАТЬ ТЫ МОЛОДЕЦ!</b></p>
@@ -340,14 +332,14 @@ elif page == 'rating':
             with col3:
                 st.markdown(f"""
                 <div style="background:#CD7F32; padding:20px; border-radius:10px; text-align:center;">
-                <h2></h2><h3>{df.iloc[2]["Сотрудник"]}</h3>
+                <h2>🥉</h2><h3>{df.iloc[2]["Сотрудник"]}</h3>
                 <p><b>{df.iloc[2]["Часы"]:.1f} ч</b></p>
                 <p>Переработка: {df.iloc[2]["Переработка"]:.1f} ч</p>
                 </div>
                 """, unsafe_allow_html=True)
         
         st.markdown('---')
-        st.subheader(' Полный рейтинг')
+        st.subheader('📋 Полный рейтинг')
         st.dataframe(df, use_container_width=True)
         
         st.markdown('---')
