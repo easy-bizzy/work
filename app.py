@@ -47,18 +47,21 @@ def save_hours(month, emp, hours):
     key = f"{month}_{emp}"
     data['hours'][key] = hours
 
-def calc_stats(hours, norm):
+def calc_stats(hours, norm, workdays):
     total = sum(hours)
     overtime = sum(max(0, h - 8) for h in hours if h > 0)
     efficiency = (total / norm * 100) if norm > 0 else 0
-    return total, overtime, efficiency
+    remaining_hours = max(0, norm - total)
+    workdays_worked = sum(1 for h in hours if h > 0)
+    remaining_days = max(0, workdays - workdays_worked)
+    return total, overtime, efficiency, remaining_hours, workdays_worked, remaining_days
 
 # ============================================
 # БОКОВАЯ ПАНЕЛЬ
 # ============================================
 st.sidebar.title('📊 Учет рабочего времени')
 page = st.sidebar.radio('📋 Меню', ['📊 Дашборд', '✏️ Ввод часов', '🏆 Рейтинг'])
-month = st.sidebar.selectbox(' Месяц', MONTHS)
+month = st.sidebar.selectbox('📅 Месяц', MONTHS)
 
 month_info = MONTHS_DATA[month]
 norm = month_info['norm']
@@ -82,20 +85,55 @@ if page == '📊 Дашборд':
     stats_list = []
     for emp in EMPLOYEES:
         hours = get_hours(month, emp)
-        total, overtime, efficiency = calc_stats(hours, norm)
+        total, overtime, efficiency, remaining_hours, workdays_worked, remaining_days = calc_stats(hours, norm, workdays)
         stats_list.append({
             'Сотрудник': emp,
             'Отработано часов': total,
             'Норма часов': norm,
-            'Переработка': overtime,
-            'Эффективность %': round(efficiency, 1)
+            'Осталось часов': remaining_hours,
+            'Процент выполнения': f'{efficiency:.1f}%',
+            'Отработано дней': workdays_worked,
+            'Рабочих дней в месяце': workdays,
+            'Осталось дней': remaining_days,
+            'Переработка': overtime
         })
     
     df = pd.DataFrame(stats_list)
     
     # Таблица по каждому сотруднику
-    st.subheader('📋 Показатели по каждому сотруднику')
+    st.subheader('📋 Статистика по каждому сотруднику')
     st.dataframe(df, use_container_width=True, hide_index=True)
+    
+    st.markdown('---')
+    
+    # Визуальные прогресс-бары для каждого сотрудника
+    st.subheader('📊 Прогресс выполнения нормы')
+    
+    for idx, row in df.iterrows():
+        emp = row['Сотрудник']
+        hours = row['Отработано часов']
+        percent = row['Процент выполнения']
+        remaining = row['Осталось часов']
+        
+        # Создаём прогресс-бар
+        progress_value = min(hours / norm, 1.0)  # Ограничиваем до 1.0 (100%)
+        
+        st.markdown(f'**{emp}** — {hours:.1f} / {norm} ч ({percent})')
+        
+        if remaining > 0:
+            st.markdown(f'Осталось: **{remaining:.1f} ч**')
+        else:
+            st.markdown(f'✅ **Норма выполнена!** Переработка: {row["Переработка"]:.1f} ч')
+        
+        # HTML прогресс-бар
+        progress_html = f'''
+        <div style="background-color: #2d2d2d; border-radius: 10px; padding: 3px; margin-bottom: 20px;">
+            <div style="background-color: #4CAF50; width: {progress_value * 100}%; height: 30px; border-radius: 8px; text-align: center; line-height: 30px; color: white; font-weight: bold;">
+                {percent}
+            </div>
+        </div>
+        '''
+        st.markdown(progress_html, unsafe_allow_html=True)
     
     st.markdown('---')
     
@@ -109,7 +147,7 @@ if page == '📊 Дашборд':
             st.bar_chart(chart_data)
     
     with col2:
-        st.subheader(' Переработка по сотрудникам')
+        st.subheader('🔥 Переработка по сотрудникам')
         if not df.empty:
             chart_data = df.set_index('Сотрудник')['Переработка']
             st.bar_chart(chart_data)
@@ -117,7 +155,7 @@ if page == '📊 Дашборд':
     st.markdown('---')
     
     # Дополнительная информация
-    st.subheader(' Статистика')
+    st.subheader('🏆 Статистика')
     
     col1, col2, col3 = st.columns(3)
     
@@ -130,8 +168,8 @@ if page == '📊 Дашборд':
         st.metric('🔥 Всего переработок', f'{total_overtime:.1f} ч')
     
     with col3:
-        avg_eff = df['Эффективность %'].mean()
-        st.metric('📈 Средняя эффективность', f'{avg_eff:.0f}%')
+        completed = len(df[df['Осталось часов'] == 0])
+        st.metric('✅ Выполнили норму', f'{completed} чел.')
 
 # ============================================
 # СТРАНИЦА 2: ВВОД ЧАСОВ
@@ -226,7 +264,7 @@ elif page == '✏️ Ввод часов':
     
     # Кнопка сохранения
     st.markdown('---')
-    if st.button(' СОХРАНИТЬ ВСЕ ДАННЫЕ', type='primary', use_container_width=True):
+    if st.button('💾 СОХРАНИТЬ ВСЕ ДАННЫЕ', type='primary', use_container_width=True):
         for idx, emp in enumerate(EMPLOYEES):
             if idx < len(edited_df):
                 new_hours = [float(edited_df.iloc[idx][str(day)]) for day in range(1, days_count + 1)]
@@ -244,12 +282,12 @@ elif page == '✏️ Ввод часов':
 # СТРАНИЦА 3: РЕЙТИНГ
 # ============================================
 elif page == '🏆 Рейтинг':
-    st.title(f' Рейтинг — {month}')
+    st.title(f'🏆 Рейтинг — {month}')
     
     stats_list = []
     for emp in EMPLOYEES:
         hours = get_hours(month, emp)
-        total, overtime, efficiency = calc_stats(hours, norm)
+        total, overtime, efficiency, remaining_hours, workdays_worked, remaining_days = calc_stats(hours, norm, workdays)
         stats_list.append({
             'Сотрудник': emp,
             'Часы': total,
@@ -293,7 +331,7 @@ elif page == '🏆 Рейтинг':
             with col3:
                 st.markdown(f'''
                 <div style="background:#CD7F32; padding:20px; border-radius:10px; text-align:center;">
-                <h2></h2>
+                <h2>🥉</h2>
                 <h3>{df.iloc[2]["Сотрудник"]}</h3>
                 <p><b>{df.iloc[2]["Часы"]:.1f} ч</b></p>
                 <p>Переработка: {df.iloc[2]["Переработка"]:.1f} ч</p>
@@ -305,7 +343,7 @@ elif page == '🏆 Рейтинг':
         st.dataframe(df, use_container_width=True)
         
         st.markdown('---')
-        st.subheader(' Награды месяца')
+        st.subheader('🏅 Награды месяца')
         col1, col2 = st.columns(2)
         
         with col1:
