@@ -3,11 +3,11 @@ import pandas as pd
 from datetime import date
 
 # ============================================
-# НАСТРОЙКИ СТРАНИЦЫ (тёмная тема по умолчанию)
+# НАСТРОЙКИ СТРАНИЦЫ
 # ============================================
 st.set_page_config(
-    page_title="Учёт времени | ОАЗИС",
-    page_icon="🏆",
+    page_title="Учёт рабочего времени",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -17,18 +17,14 @@ st.set_page_config(
 # ============================================
 EMPLOYEES = ['Виталя', 'Василий', 'Александр П', 'Александр О', 'Игорь', 'Стас']
 MONTHS = ['ИЮЛЬ', 'АВГУСТ', 'СЕНТЯБРЬ', 'ОКТЯБРЬ', 'НОЯБРЬ', 'ДЕКАБРЬ']
-MONTHS_DATA = {
-    'ИЮЛЬ': 184, 'АВГУСТ': 168, 'СЕНТЯБРЬ': 176,
-    'ОКТЯБРЬ': 176, 'НОЯБРЬ': 160, 'ДЕКАБРЬ': 184
-}
 
-CALENDAR = {
-    'ИЮЛЬ': {'weekends': [4,5,11,12,18,19,25,26], 'holidays': [], 'short': []},
-    'АВГУСТ': {'weekends': [1,2,8,9,15,16,22,23,29,30], 'holidays': [], 'short': []},
-    'СЕНТЯБРЬ': {'weekends': [5,6,12,13,19,20,26,27], 'holidays': [], 'short': []},
-    'ОКТЯБРЬ': {'weekends': [3,4,10,11,17,18,24,25,31], 'holidays': [], 'short': []},
-    'НОЯБРЬ': {'weekends': [1,7,8,14,15,21,22,28,29], 'holidays': [4], 'short': [3]},
-    'ДЕКАБРЬ': {'weekends': [5,6,12,13,19,20,26,27], 'holidays': [], 'short': [31]},
+MONTHS_DATA = {
+    'ИЮЛЬ': {'norm': 184, 'workdays': 23, 'weekends': [4,5,11,12,18,19,25,26], 'holidays': [], 'short': []},
+    'АВГУСТ': {'norm': 168, 'workdays': 21, 'weekends': [1,2,8,9,15,16,22,23,29,30], 'holidays': [], 'short': []},
+    'СЕНТЯБРЬ': {'norm': 176, 'workdays': 22, 'weekends': [5,6,12,13,19,20,26,27], 'holidays': [], 'short': []},
+    'ОКТЯБРЬ': {'norm': 176, 'workdays': 22, 'weekends': [3,4,10,11,17,18,24,25,31], 'holidays': [], 'short': []},
+    'НОЯБРЬ': {'norm': 160, 'workdays': 20, 'weekends': [1,7,8,14,15,21,22,28,29], 'holidays': [4], 'short': [3]},
+    'ДЕКАБРЬ': {'norm': 184, 'workdays': 23, 'weekends': [5,6,12,13,19,20,26,27], 'holidays': [], 'short': [31]},
 }
 
 MONTH_NUM = {'ИЮЛЬ': 7, 'АВГУСТ': 8, 'СЕНТЯБРЬ': 9, 'ОКТЯБРЬ': 10, 'НОЯБРЬ': 11, 'ДЕКАБРЬ': 12}
@@ -60,17 +56,29 @@ def calc_stats(hours, norm):
 # ============================================
 # БОКОВАЯ ПАНЕЛЬ
 # ============================================
-st.sidebar.title('🏆 ОАЗИС')
-page = st.sidebar.radio('📋 Меню', [' Дашборд', '✏️ Ввод часов', '🏆 Рейтинг'])
+st.sidebar.title('📊 Учет рабочего времени')
+page = st.sidebar.radio(' Меню', ['📊 Дашборд', '✏️ Ввод часов', ' Рейтинг'])
 month = st.sidebar.selectbox('📅 Месяц', MONTHS)
-norm = MONTHS_DATA[month]
+
+month_info = MONTHS_DATA[month]
+norm = month_info['norm']
+workdays = month_info['workdays']
+
+# Информация о производственном календаре
+st.sidebar.markdown('---')
+st.sidebar.markdown(f'**📅 {month} 2026**')
+st.sidebar.markdown(f'Рабочих дней: **{workdays}**')
+st.sidebar.markdown(f'Норма часов: **{norm}**')
+st.sidebar.markdown(f'Праздники: {len(month_info["holidays"])}')
+st.sidebar.markdown(f'Сокращённые: {len(month_info["short"])}')
 
 # ============================================
-# СТРАНИЦА 1: ДАШБОРД (ИСПРАВЛЕН)
+# СТРАНИЦА 1: ДАШБОРД
 # ============================================
 if page == '📊 Дашборд':
-    st.title(f'📊 Дашборд — {month} 2026')
+    st.title(f' Дашборд — {month} 2026')
     
+    # Собираем статистику
     stats_list = []
     for emp in EMPLOYEES:
         hours = get_hours(month, emp)
@@ -84,43 +92,92 @@ if page == '📊 Дашборд':
     
     df = pd.DataFrame(stats_list)
     
-    # KPI
-    col1, col2, col3 = st.columns(3)
+    # KPI карточки
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric('⏱ Всего часов', f"{df['Часы'].sum():.1f}")
+        st.metric(' Всего часов', f"{df['Часы'].sum():.1f}", f"Норма: {norm * len(EMPLOYEES)} ч")
     with col2:
         st.metric('🔥 Переработка', f"{df['Переработка'].sum():.1f} ч")
     with col3:
         st.metric('📈 Ср. эффективность', f"{df['Эффективность %'].mean():.0f}%")
+    with col4:
+        st.metric(' Сотрудников', len(EMPLOYEES))
+    
+    st.markdown('---')
+    
+    # Итоги по команде (детальная таблица)
+    st.subheader(' Итоги по команде')
+    
+    # Добавляем ранг
+    df_sorted = df.sort_values('Часы', ascending=False).reset_index(drop=True)
+    df_sorted['Место'] = range(1, len(df_sorted) + 1)
+    
+    # Переупорядочиваем колонки
+    df_display = df_sorted[['Место', 'Сотрудник', 'Часы', 'Переработка', 'Эффективность %']]
+    
+    st.dataframe(df_display, use_container_width=True, hide_index=True)
     
     st.markdown('---')
     
     # Графики
     col1, col2 = st.columns(2)
+    
     with col1:
-        st.subheader('⏱ Часы по сотрудникам')
-        st.bar_chart(df.set_index('Сотрудник')['Часы'])
+        st.subheader(' Часы по сотрудникам')
+        if not df.empty:
+            chart_data = df.set_index('Сотрудник')['Часы']
+            st.bar_chart(chart_data)
+    
     with col2:
-        st.subheader('🔥 Переработка')
-        st.bar_chart(df.set_index('Сотрудник')['Переработка'])
+        st.subheader(' Переработка')
+        if not df.empty:
+            chart_data = df.set_index('Сотрудник')['Переработка']
+            st.bar_chart(chart_data)
     
     st.markdown('---')
-    st.subheader(' Сводная таблица')
-    st.dataframe(df, use_container_width=True)
+    
+    # Дополнительная информация
+    st.subheader('📊 Дополнительная статистика')
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        top_worker = df.loc[df['Часы'].idxmax()]
+        st.metric('🏆 Лидер месяца', top_worker['Сотрудник'], f"{top_worker['Часы']:.1f} ч")
+    
+    with col2:
+        min_worker = df.loc[df['Часы'].idxmin()]
+        st.metric('📉 Минимум', min_worker['Сотрудник'], f"{min_worker['Часы']:.1f} ч")
+    
+    with col3:
+        avg_hours = df['Часы'].mean()
+        st.metric('📊 Среднее по команде', f"{avg_hours:.1f} ч")
 
 # ============================================
-# СТРАНИЦА 2: ВВОД ЧАСОВ (КАК В EXCEL)
+# СТРАНИЦА 2: ВВОД ЧАСОВ
 # ============================================
 elif page == '✏️ Ввод часов':
     st.title(f'✏️ Ввод часов — {month} 2026')
-    st.info('💡 Кликай на ячейку и вводи часы. Нажми "Сохранить" когда закончишь.')
     
-    cal = CALENDAR[month]
+    # Информация о производственном календаре
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.info(f'📅 Рабочих дней: **{workdays}**')
+    with col2:
+        st.info(f'⏱ Норма часов: **{norm}**')
+    with col3:
+        st.info(f'🔴 Праздников: **{len(month_info["holidays"])}**')
+    with col4:
+        st.info(f'🟠 Сокращённых: **{len(month_info["short"])}**')
+    
+    st.markdown('---')
+    
+    cal = month_info
     year = 2026
     month_num = MONTH_NUM[month]
     days_count = DAYS_IN_MONTH[month]
     
-    # Формируем таблицу: строки = сотрудники, колонки = дни + ИТОГО + ПЕРЕРАБ
+    # Формируем таблицу с подсветкой дней
     table_data = []
     for emp in EMPLOYEES:
         hours = get_hours(month, emp)
@@ -130,7 +187,7 @@ elif page == '✏️ Ввод часов':
             h = float(hours[day-1]) if day-1 < len(hours) else 0.0
             row[str(day)] = h
         
-        # ИТОГО и ПЕРЕРАБ считаем сразу
+        # ИТОГО и ПЕРЕРАБ
         total = sum(row[str(day)] for day in range(1, days_count + 1))
         overtime = sum(max(0, row[str(day)] - 8) for day in range(1, days_count + 1) if row[str(day)] > 0)
         row['ИТОГО'] = round(total, 1)
@@ -140,16 +197,27 @@ elif page == '✏️ Ввод часов':
     
     df_input = pd.DataFrame(table_data)
     
-    # Настройка колонок
+    # Настройка колонок с подсветкой
     column_config = {
         'Сотрудник': st.column_config.TextColumn('Сотрудник', width='medium', disabled=True),
         'ИТОГО': st.column_config.NumberColumn('ИТОГО', format='%.1f', width='small', disabled=True),
         'ПЕРЕРАБ': st.column_config.NumberColumn('ПЕРЕРАБ', format='%.1f', width='small', disabled=True),
     }
     
+    # Добавляем дни с информацией о типе дня
     for day in range(1, days_count + 1):
+        # Определяем тип дня для подсказки
+        if day in cal['holidays']:
+            day_label = f'🔴{day}'
+        elif day in cal['short']:
+            day_label = f'{day}'
+        elif day in cal['weekends']:
+            day_label = f'{day}'
+        else:
+            day_label = str(day)
+        
         column_config[str(day)] = st.column_config.NumberColumn(
-            str(day),
+            day_label,
             min_value=0.0,
             max_value=24.0,
             step=0.5,
@@ -167,7 +235,7 @@ elif page == '✏️ Ввод часов':
         key='hours_table'
     )
     
-    # Пересчёт ИТОГО и ПЕРЕРАБ после редактирования
+    # Пересчёт ИТОГО и ПЕРЕРАБ
     for idx in range(len(edited_df)):
         total = sum(float(edited_df.iloc[idx][str(day)]) for day in range(1, days_count + 1))
         overtime = sum(max(0, float(edited_df.iloc[idx][str(day)]) - 8) 
@@ -178,7 +246,7 @@ elif page == '✏️ Ввод часов':
     
     # Кнопка сохранения
     st.markdown('---')
-    if st.button(' СОХРАНИТЬ ВСЕ ДАННЫЕ', type='primary', use_container_width=True):
+    if st.button('💾 СОХРАНИТЬ ВСЕ ДАННЫЕ', type='primary', use_container_width=True):
         for idx, emp in enumerate(EMPLOYEES):
             if idx < len(edited_df):
                 new_hours = [float(edited_df.iloc[idx][str(day)]) for day in range(1, days_count + 1)]
@@ -196,7 +264,7 @@ elif page == '✏️ Ввод часов':
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric('⏱ Всего часов по команде', f'{total_hours_all:.1f}')
+        st.metric('⏱ Всего часов по команде', f'{total_hours_all:.1f}', f"Норма: {norm * len(EMPLOYEES)} ч")
     with col2:
         st.metric('🔥 Всего переработок', f'{total_overtime_all:.1f} ч')
     with col3:
@@ -212,7 +280,7 @@ elif page == '✏️ Ввод часов':
 # СТРАНИЦА 3: РЕЙТИНГ
 # ============================================
 elif page == '🏆 Рейтинг':
-    st.title(f'🏆 Рейтинг — {month}')
+    st.title(f' Рейтинг — {month}')
     
     stats_list = []
     for emp in EMPLOYEES:
@@ -245,7 +313,7 @@ elif page == '🏆 Рейтинг':
         with col2:
             st.markdown(f'''
             <div style="background:linear-gradient(135deg, #FFD700, #FFA500); padding:30px; border-radius:10px; text-align:center; border:3px solid gold;">
-            <h1>🥇</h1>
+            <h1></h1>
             <h2>{df.iloc[0]["Сотрудник"]}</h2>
             <p style="font-size:24px;"><b>{df.iloc[0]["Часы"]:.1f} ч</b></p>
             <p>Переработка: {df.iloc[0]["Переработка"]:.1f} ч</p>
@@ -264,7 +332,7 @@ elif page == '🏆 Рейтинг':
             ''', unsafe_allow_html=True)
     
     st.markdown('---')
-    st.subheader(' Полный рейтинг')
+    st.subheader('📋 Полный рейтинг')
     st.dataframe(df, use_container_width=True)
     
     st.markdown('---')
