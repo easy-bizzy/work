@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import json
 from datetime import date
 
 # ============================================
@@ -31,21 +32,18 @@ MONTH_NUM = {'ИЮЛЬ': 7, 'АВГУСТ': 8, 'СЕНТЯБРЬ': 9, 'ОКТЯ�
 DAYS_IN_MONTH = {'ИЮЛЬ': 31, 'АВГУСТ': 31, 'СЕНТЯБРЬ': 30, 'ОКТЯБРЬ': 31, 'НОЯБРЬ': 30, 'ДЕКАБРЬ': 31}
 
 # ============================================
-# ХРАНЕНИЕ ДАННЫХ
+# ХРАНЕНИЕ ДАННЫХ В SESSION STATE
 # ============================================
-@st.cache_resource
-def get_data():
-    return {'hours': {}}
-
-data = get_data()
+if 'hours_data' not in st.session_state:
+    st.session_state.hours_data = {}
 
 def get_hours(month, emp):
     key = f"{month}_{emp}"
-    return data['hours'].get(key, [0.0] * 31)
+    return st.session_state.hours_data.get(key, [0.0] * 31)
 
 def save_hours(month, emp, hours):
     key = f"{month}_{emp}"
-    data['hours'][key] = hours
+    st.session_state.hours_data[key] = hours
 
 def calc_stats(hours, norm, workdays):
     total = sum(hours)
@@ -59,9 +57,33 @@ def calc_stats(hours, norm, workdays):
 # ============================================
 # БОКОВАЯ ПАНЕЛЬ
 # ============================================
-st.sidebar.title('📊 Учет рабочего времени')
-page = st.sidebar.radio('📋 Меню', ['📊 Дашборд', '✏️ Ввод часов', '🏆 Рейтинг'])
-month = st.sidebar.selectbox(' Месяц', MONTHS)
+st.sidebar.title(' Учет рабочего времени')
+
+# Кнопки сохранения/загрузки
+st.sidebar.markdown('### 💾 Управление данными')
+
+data_json = json.dumps(st.session_state.hours_data, ensure_ascii=False)
+st.sidebar.download_button(
+    label='📥 Скачать бэкап',
+    data=data_json,
+    file_name=f'backup_{date.today().strftime("%Y%m%d")}.json',
+    mime='application/json',
+    use_container_width=True
+)
+
+uploaded_file = st.sidebar.file_uploader('📤 Загрузить бэкап', type=['json'])
+if uploaded_file is not None:
+    try:
+        new_data = json.load(uploaded_file)
+        st.session_state.hours_data = new_data
+        st.sidebar.success('✅ Данные загружены!')
+    except Exception as e:
+        st.sidebar.error(f'❌ Ошибка: {e}')
+
+st.sidebar.markdown('---')
+
+page = st.sidebar.radio(' Меню', ['📊 Дашборд', '✏️ Ввод часов', ' Рейтинг'])
+month = st.sidebar.selectbox('📅 Месяц', MONTHS)
 
 month_info = MONTHS_DATA[month]
 norm = month_info['norm']
@@ -164,7 +186,7 @@ if page == '📊 Дашборд':
         st.metric('✅ Выполнили норму', f'{completed} чел.')
 
 # ============================================
-# СТРАНИЦА 2: ВВОД ЧАСОВ (С ЯРКИМИ ЦВЕТАМИ И ВВОДОМ В ЯЧЕЙКИ)
+# СТРАНИЦА 2: ВВОД ЧАСОВ (С ЦВЕТНЫМИ ЯЧЕЙКАМИ)
 # ============================================
 elif page == '✏️ Ввод часов':
     st.title(f'✏️ Ввод часов — {month} 2026')
@@ -186,55 +208,31 @@ elif page == '✏️ Ввод часов':
     month_num = MONTH_NUM[month]
     days_count = DAYS_IN_MONTH[month]
     
-    # CSS для современных цветов
-    st.markdown("""
-    <style>
-    /* Современные пастельные цвета */
-    .day-header-weekend {
-        background-color: #E9D5FF !important;
-        color: #6B21A8 !important;
-        font-weight: bold !important;
-    }
-    .day-header-holiday {
-        background-color: #FCA5A5 !important;
-        color: #991B1B !important;
-        font-weight: bold !important;
-    }
-    .day-header-short {
-        background-color: #FED7AA !important;
-        color: #9A3412 !important;
-        font-weight: bold !important;
-    }
-    .day-header-workday {
-        background-color: #F3F4F6 !important;
-        color: #1F2937 !important;
-    }
-    .total-header {
-        background-color: #86EFAC !important;
-        color: #064E3B !important;
-        font-weight: bold !important;
-    }
-    .overtime-header {
-        background-color: #FDE047 !important;
-        color: #713F12 !important;
-        font-weight: bold !important;
-    }
+    # CSS для окраски ячеек таблицы
+    css_rules = []
     
-    /* Таблица */
-    .dataframe {
-        font-size: 11px !important;
-    }
+    # Определяем типы дней и создаём CSS-правила
+    weekend_days = cal['weekends']
+    holiday_days = cal['holidays']
+    short_days = cal['short']
     
-    /* Легенда */
-    .legend-box {
-        display: inline-block;
-        padding: 5px 10px;
-        margin: 2px;
-        border-radius: 5px;
-        font-size: 12px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    for day in range(1, days_count + 1):
+        # Колонка в таблице: день 1 = колонка 2 (потому что колонка 1 - "Сотрудник")
+        col_index = day + 1
+        
+        if day in holiday_days:
+            # Праздник - коралловый
+            css_rules.append(f'.stDataFrame table tbody tr td:nth-child({col_index}), .stDataFrame table thead tr th:nth-child({col_index}) {{ background-color: #FCA5A5 !important; color: #991B1B !important; }}')
+        elif day in short_days:
+            # Сокращённый - персиковый
+            css_rules.append(f'.stDataFrame table tbody tr td:nth-child({col_index}), .stDataFrame table thead tr th:nth-child({col_index}) {{ background-color: #FED7AA !important; color: #9A3412 !important; }}')
+        elif day in weekend_days:
+            # Выходной - лавандовый
+            css_rules.append(f'.stDataFrame table tbody tr td:nth-child({col_index}), .stDataFrame table thead tr th:nth-child({col_index}) {{ background-color: #E9D5FF !important; color: #6B21A8 !important; }}')
+    
+    # Применяем CSS
+    css_string = '\n'.join(css_rules)
+    st.markdown(f'<style>{css_string}</style>', unsafe_allow_html=True)
     
     # Формируем таблицу
     table_data = []
@@ -255,7 +253,7 @@ elif page == '✏️ Ввод часов':
     
     df_input = pd.DataFrame(table_data)
     
-    # Настройка колонок с цветными заголовками
+    # Настройка колонок
     column_config = {
         'Сотрудник': st.column_config.TextColumn('Сотрудник', width='medium', disabled=True),
         'ИТОГО': st.column_config.NumberColumn('ИТОГО', format='%.1f', width='small', disabled=True),
@@ -266,7 +264,7 @@ elif page == '✏️ Ввод часов':
         if day in cal['holidays']:
             day_label = f'🔴{day}'
         elif day in cal['short']:
-            day_label = f'🟠{day}'
+            day_label = f'{day}'
         elif day in cal['weekends']:
             day_label = f'💜{day}'
         else:
@@ -281,8 +279,7 @@ elif page == '✏️ Ввод часов':
             width='small'
         )
     
-    # Редактируемая таблица - ввод прямо в ячейки!
-    st.markdown('**💡 Кликай на любую ячейку и вводи часы. Данные обновляются автоматически.**')
+    st.markdown('**💡 Кликай на любую ячейку и вводи часы. Цветные ячейки показывают тип дня.**')
     
     edited_df = st.data_editor(
         df_input,
@@ -304,7 +301,7 @@ elif page == '✏️ Ввод часов':
     
     # Кнопка сохранения
     st.markdown('---')
-    if st.button(' СОХРАНИТЬ ВСЕ ДАННЫЕ', type='primary', use_container_width=True):
+    if st.button('💾 СОХРАНИТЬ ВСЕ ДАННЫЕ', type='primary', use_container_width=True):
         for idx, emp in enumerate(EMPLOYEES):
             if idx < len(edited_df):
                 new_hours = [float(edited_df.iloc[idx][str(day)]) for day in range(1, days_count + 1)]
@@ -313,16 +310,14 @@ elif page == '✏️ Ввод часов':
                 save_hours(month, emp, new_hours[:31])
         st.success('✅ Все данные сохранены!')
     
-    # Легенда с современными цветами
+    # Легенда
     st.markdown('---')
-    st.markdown('**📌 Легенда:**')
+    st.markdown('** Легенда:**')
     st.markdown('''
-    <span class="legend-box" style="background-color: #FCA5A5; color: #991B1B;">🔴 Праздник</span>
-    <span class="legend-box" style="background-color: #FED7AA; color: #9A3412;"> Сокращённый</span>
-    <span class="legend-box" style="background-color: #E9D5FF; color: #6B21A8;">💜 Выходной</span>
-    <span class="legend-box" style="background-color: #F3F4F6; color: #1F2937;"> Рабочий</span>
-    <span class="legend-box" style="background-color: #86EFAC; color: #064E3B;">ИТОГО</span>
-    <span class="legend-box" style="background-color: #FDE047; color: #713F12;">ПЕРЕРАБ</span>
+    <span class="legend-box" style="background-color: #FCA5A5; color: #991B1B; display: inline-block; padding: 5px 10px; margin: 2px; border-radius: 5px; font-size: 12px;"> Праздник</span>
+    <span class="legend-box" style="background-color: #FED7AA; color: #9A3412; display: inline-block; padding: 5px 10px; margin: 2px; border-radius: 5px; font-size: 12px;">🟠 Сокращённый</span>
+    <span class="legend-box" style="background-color: #E9D5FF; color: #6B21A8; display: inline-block; padding: 5px 10px; margin: 2px; border-radius: 5px; font-size: 12px;">💜 Выходной</span>
+    <span class="legend-box" style="background-color: #F3F4F6; color: #1F2937; display: inline-block; padding: 5px 10px; margin: 2px; border-radius: 5px; font-size: 12px;">⚪ Рабочий</span>
     ''', unsafe_allow_html=True)
     
     st.markdown('💡 **Переработка** = всё что больше 8 часов в день')
@@ -331,7 +326,7 @@ elif page == '✏️ Ввод часов':
 # СТРАНИЦА 3: РЕЙТИНГ
 # ============================================
 elif page == '🏆 Рейтинг':
-    st.title(f'🏆 Рейтинг — {month}')
+    st.title(f' Рейтинг — {month}')
     
     stats_list = []
     for emp in EMPLOYEES:
@@ -350,7 +345,7 @@ elif page == '🏆 Рейтинг':
         st.warning('⚠️ Нет данных за этот месяц. Введите часы на странице "Ввод часов".')
     else:
         st.markdown('---')
-        st.subheader(' Подиум')
+        st.subheader('🏆 Подиум')
         
         if len(df) >= 3:
             col1, col2, col3 = st.columns(3)
@@ -368,7 +363,7 @@ elif page == '🏆 Рейтинг':
             with col2:
                 st.markdown(f'''
                 <div style="background:linear-gradient(135deg, #FFD700, #FFA500); padding:30px; border-radius:10px; text-align:center; border:3px solid gold;">
-                <h1>🥇</h1>
+                <h1></h1>
                 <h2>{df.iloc[0]["Сотрудник"]}</h2>
                 <p style="font-size:24px;"><b>{df.iloc[0]["Часы"]:.1f} ч</b></p>
                 <p>Переработка: {df.iloc[0]["Переработка"]:.1f} ч</p>
@@ -379,7 +374,7 @@ elif page == '🏆 Рейтинг':
             with col3:
                 st.markdown(f'''
                 <div style="background:#CD7F32; padding:20px; border-radius:10px; text-align:center;">
-                <h2></h2>
+                <h2>🥉</h2>
                 <h3>{df.iloc[2]["Сотрудник"]}</h3>
                 <p><b>{df.iloc[2]["Часы"]:.1f} ч</b></p>
                 <p>Переработка: {df.iloc[2]["Переработка"]:.1f} ч</p>
@@ -387,11 +382,11 @@ elif page == '🏆 Рейтинг':
                 ''', unsafe_allow_html=True)
         
         st.markdown('---')
-        st.subheader('📋 Полный рейтинг')
+        st.subheader(' Полный рейтинг')
         st.dataframe(df, use_container_width=True)
         
         st.markdown('---')
-        st.subheader(' Награды месяца')
+        st.subheader('🏅 Награды месяца')
         col1, col2 = st.columns(2)
         
         with col1:
