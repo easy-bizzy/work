@@ -3,6 +3,7 @@ import pandas as pd
 import json
 from datetime import date, datetime
 import requests
+import os
 
 st.set_page_config(
     page_title="Учёт рабочего времени",
@@ -12,45 +13,62 @@ st.set_page_config(
 )
 
 # ============================================
-# НАСТРОЙКИ JSONBIN (твои ключи)
+# НАСТРОЙКИ JSONBIN
 # ============================================
 JSONBIN_API_KEY = "$2a$10$fdP3BAMcCh8G0kJpVurg7.fqWCvq9jsXK.yzOcd0ynCzs4H2PEoVC"
 JSONBIN_BIN_ID = "6a53ccceda38895dfe534f3f"
+LOCAL_FILE = "hours_backup.json"  # Локальный файл-страховка
 
 def load_from_cloud():
-    """Загрузка данных из JSONBin"""
+    """Загрузка из JSONBin"""
     headers = {'X-Master-Key': JSONBIN_API_KEY}
+    url = f'https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}/latest'
+    
     try:
-        response = requests.get(
-            f'https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}/latest',
-            headers=headers
-        )
+        response = requests.get(url, headers=headers, timeout=10)
+        
         if response.status_code == 200:
             result = response.json()
-            return result['record'], "✅ Данные загружены из облака!"
-        else:
-            return None, f"❌ Ошибка загрузки: {response.status_code}"
+            if 'record' in result:
+                return result['record'], "✅ Облако подключено"
+        return None, f"⚠️ Облако: код {response.status_code}"
     except Exception as e:
-        return None, f"❌ Ошибка сети: {str(e)}"
+        return None, f"⚠️ Нет связи с облаком"
 
 def save_to_cloud(data):
-    """Сохранение данных в JSONBin"""
+    """Сохранение в JSONBin"""
     headers = {
         'X-Master-Key': JSONBIN_API_KEY,
         'Content-Type': 'application/json'
     }
+    url = f'https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}'
+    
     try:
-        response = requests.put(
-            f'https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}',
-            headers=headers,
-            json=data
-        )
+        response = requests.put(url, headers=headers, json=data, timeout=10)
         if response.status_code == 200:
-            return True, "✅ Данные сохранены в облако!"
-        else:
-            return False, f"❌ Ошибка сохранения: {response.status_code}"
+            return True, "✅ Сохранено в облако"
+        return False, f"❌ Ошибка {response.status_code}"
     except Exception as e:
-        return False, f" Ошибка сети: {str(e)}"
+        return False, f"❌ Нет связи"
+
+def save_to_local(data):
+    """Сохранение в локальный файл (страховка)"""
+    try:
+        with open(LOCAL_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return True
+    except:
+        return False
+
+def load_from_local():
+    """Загрузка из локального файла"""
+    if os.path.exists(LOCAL_FILE):
+        try:
+            with open(LOCAL_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return None
+    return None
 
 EMPLOYEES = ['Виталя', 'Василий', 'Александр П', 'Александр О', 'Игорь', 'Стас']
 MONTHS = ['ИЮЛЬ', 'АВГУСТ', 'СЕНТЯБРЬ', 'ОКТЯБРЬ', 'НОЯБРЬ', 'ДЕКАБРЬ']
@@ -70,7 +88,9 @@ DAYS_IN_MONTH = {'ИЮЛЬ': 31, 'АВГУСТ': 31, 'СЕНТЯБРЬ': 30, 'О
 # ИНИЦИАЛИЗАЦИЯ ДАННЫХ
 # ============================================
 if 'hours_data' not in st.session_state:
+    # Сначала пробуем облако
     cloud_data, cloud_msg = load_from_cloud()
+    
     if cloud_data:
         st.session_state.hours_data = cloud_data.get('hours', {})
         st.session_state.feed = cloud_data.get('feed', [])
@@ -78,13 +98,26 @@ if 'hours_data' not in st.session_state:
         st.session_state.checkins = cloud_data.get('checkins', {})
         st.session_state.locked_data = cloud_data.get('locked', {})
         st.session_state.cloud_status = cloud_msg
+        st.session_state.source = "☁️ Облако"
     else:
-        st.session_state.hours_data = {}
-        st.session_state.feed = []
-        st.session_state.votes = {'hardworker': {}, 'slacker': {}, 'voters': []}
-        st.session_state.checkins = {}
-        st.session_state.locked_data = {}
-        st.session_state.cloud_status = cloud_msg
+        # Если облако недоступно — пробуем локальный файл
+        local_data = load_from_local()
+        if local_data:
+            st.session_state.hours_data = local_data.get('hours', {})
+            st.session_state.feed = local_data.get('feed', [])
+            st.session_state.votes = local_data.get('votes', {'hardworker': {}, 'slacker': {}, 'voters': []})
+            st.session_state.checkins = local_data.get('checkins', {})
+            st.session_state.locked_data = local_data.get('locked', {})
+            st.session_state.cloud_status = f"{cloud_msg} (загружено из файла)"
+            st.session_state.source = "💾 Локальный файл"
+        else:
+            st.session_state.hours_data = {}
+            st.session_state.feed = []
+            st.session_state.votes = {'hardworker': {}, 'slacker': {}, 'voters': []}
+            st.session_state.checkins = {}
+            st.session_state.locked_data = {}
+            st.session_state.cloud_status = cloud_msg
+            st.session_state.source = "🆕 Пустые данные"
 
 def get_hours(month, emp):
     key = f"{month}_{emp}"
@@ -140,15 +173,27 @@ def get_all_data():
         'locked': st.session_state.locked_data
     }
 
+def save_everywhere():
+    """Сохраняет и в облако, и в локальный файл"""
+    data = get_all_data()
+    
+    # Всегда сохраняем локально
+    local_ok = save_to_local(data)
+    
+    # Пытаемся сохранить в облако
+    cloud_ok, cloud_msg = save_to_cloud(data)
+    
+    return local_ok, cloud_ok, cloud_msg
+
 # ============================================
 # БОКОВАЯ ПАНЕЛЬ
 # ============================================
-st.sidebar.title(' Учет рабочего времени')
+st.sidebar.title('📊 Учет рабочего времени')
 
-st.sidebar.markdown('### ☁️ Облачное хранилище')
-st.sidebar.info(st.session_state.cloud_status)
+st.sidebar.markdown('### ☁️ Статус хранилища')
+st.sidebar.info(f"**Источник:** {st.session_state.source}\n\n**Облако:** {st.session_state.cloud_status}")
 
-if st.sidebar.button('🔄 Загрузить из облака', use_container_width=True):
+if st.sidebar.button('🔄 Принудительно загрузить из облака', use_container_width=True):
     cloud_data, cloud_msg = load_from_cloud()
     if cloud_data:
         st.session_state.hours_data = cloud_data.get('hours', {})
@@ -156,21 +201,42 @@ if st.sidebar.button('🔄 Загрузить из облака', use_container_
         st.session_state.votes = cloud_data.get('votes', {'hardworker': {}, 'slacker': {}, 'voters': []})
         st.session_state.checkins = cloud_data.get('checkins', {})
         st.session_state.locked_data = cloud_data.get('locked', {})
-        st.session_state.cloud_status = cloud_msg
-        st.success('✅ Данные загружены!')
+        st.session_state.cloud_status = "✅ Загружено из облака!"
+        st.session_state.source = "️ Облако"
+        st.success('✅ Данные загружены из облака!')
         st.rerun()
     else:
         st.session_state.cloud_status = cloud_msg
         st.warning(cloud_msg)
 
-if st.sidebar.button('💾 Сохранить в облако', type='primary', use_container_width=True):
+if st.sidebar.button('💾 Сохранить сейчас', type='primary', use_container_width=True):
     with st.spinner('Сохранение...'):
-        success, msg = save_to_cloud(get_all_data())
-        st.session_state.cloud_status = msg
-        if success:
-            st.success(msg)
+        local_ok, cloud_ok, cloud_msg = save_everywhere()
+        st.session_state.cloud_status = cloud_msg
+        
+        if cloud_ok and local_ok:
+            st.success('✅ Сохранено в облако и локально!')
+        elif local_ok:
+            st.warning(f'⚠️ Сохранено только локально. Облако: {cloud_msg}')
         else:
-            st.error(msg)
+            st.error(f'❌ Ошибка сохранения: {cloud_msg}')
+
+st.sidebar.markdown('---')
+
+# Диагностика
+with st.sidebar.expander('🔍 Диагностика'):
+    st.write(f"**Bin ID:** `{JSONBIN_BIN_ID}`")
+    st.write(f"**API Key:** `{JSONBIN_API_KEY[:20]}...`")
+    st.write(f"**Локальный файл:** `{LOCAL_FILE}`")
+    st.write(f"**Размер данных:** {len(json.dumps(get_all_data()))} байт")
+    
+    if os.path.exists(LOCAL_FILE):
+        st.success(f"✅ Файл существует")
+        with open(LOCAL_FILE, 'r', encoding='utf-8') as f:
+            preview = f.read()[:200]
+        st.code(preview, language='json')
+    else:
+        st.error("❌ Файл не создан")
 
 st.sidebar.markdown('---')
 
@@ -190,7 +256,7 @@ st.sidebar.markdown(f'Норма часов: **{norm}**')
 # ДАШБОРД
 # ============================================
 if page == 'dashboard':
-    st.title(f'📊 Дашборд — {month} 2026')
+    st.title(f' Дашборд — {month} 2026')
     
     stats_list = []
     for emp in EMPLOYEES:
@@ -213,7 +279,7 @@ if page == 'dashboard':
     
     df = pd.DataFrame(stats_list)
     
-    st.subheader('📋 Статистика по каждому сотруднику')
+    st.subheader(' Статистика по каждому сотруднику')
     st.dataframe(df, use_container_width=True, hide_index=True)
     
     st.markdown('---')
@@ -224,12 +290,12 @@ if page == 'dashboard':
         if not df.empty:
             st.bar_chart(df.set_index('Сотрудник')[['Отработано часов', 'Норма часов']])
     with col2:
-        st.subheader('🔥 Переработка по сотрудникам')
+        st.subheader(' Переработка по сотрудникам')
         if not df.empty:
             st.bar_chart(df.set_index('Сотрудник')['Переработка'])
     
     st.markdown('---')
-    st.subheader(' Статистика')
+    st.subheader('📈 Статистика')
     col1, col2, col3 = st.columns(3)
     with col1:
         top_worker = df.loc[df['Отработано часов'].idxmax()]
@@ -239,65 +305,17 @@ if page == 'dashboard':
     with col3:
         completed = len(df[df['Осталось часов'] == 0])
         st.metric('✅ Выполнили норму', f'{completed} чел.')
-    
-    st.markdown('---')
-    st.subheader('📊 Детальная статистика по сотрудникам')
-    
-    df_sorted = df.sort_values('Отработано часов', ascending=False).reset_index(drop=True)
-    leader_name = df_sorted.iloc[0]['Сотрудник'] if len(df_sorted) > 0 else None
-    
-    for idx, row in df_sorted.iterrows():
-        emp = row['Сотрудник']
-        is_leader = (emp == leader_name) and row['Отработано часов'] > 0
-        
-        if is_leader:
-            st.markdown(f'### 🏆 {emp} — ЛИДЕР МЕСЯЦА')
-        else:
-            st.markdown(f'### #{idx + 1} {emp}')
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric('⏱ Всего часов', f"{row['Отработано часов']:.1f} / {norm}")
-        with col2:
-            st.metric('📅 Рабочих дней', f"{row['Отработано дней']} / {workdays}")
-        with col3:
-            st.metric('🔥 Переработка', f"{row['Переработка']:.1f} ч")
-        with col4:
-            remaining = row['Осталось часов']
-            if remaining > 0:
-                st.metric('⏳ Осталось часов', f"{remaining:.1f} ч")
-            else:
-                st.metric('✅ Норма выполнена', f"+{row['Отработано часов'] - norm:.1f} ч")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown(f"**📊 % выполнения по часам:** {row['Процент выполнения']}")
-        with col2:
-            days_percent = (row['Отработано дней'] / workdays * 100) if workdays > 0 else 0
-            st.markdown(f"**📅 % выполнения по дням:** {days_percent:.1f}%")
-        
-        hours_percent = float(row['Процент выполнения'].replace('%', ''))
-        progress_value = min(hours_percent / 100, 1.0)
-        bar_html = f'''
-        <div style="background-color: #2d2d2d; border-radius: 10px; padding: 3px; margin: 15px 0;">
-            <div style="background-color: #9CA3AF; width: {progress_value * 100}%; height: 35px; border-radius: 8px; text-align: center; line-height: 35px; color: white; font-weight: bold; font-size: 14px;">
-                {hours_percent:.1f}%
-            </div>
-        </div>
-        '''
-        st.markdown(bar_html, unsafe_allow_html=True)
-        st.markdown('---')
 
 # ============================================
 # ВВОД ЧАСОВ
 # ============================================
 elif page == 'input':
-    st.title(f'️ Ввод часов — {month} 2026')
+    st.title(f'⏱️ Ввод часов — {month} 2026')
     
     col1, col2, col3, col4 = st.columns(4)
     with col1: st.info(f'📅 Рабочих дней: **{workdays}**')
-    with col2: st.info(f' Норма часов: **{norm}**')
-    with col3: st.info(f'🔴 Праздников: **{len(month_info["holidays"])}**')
+    with col2: st.info(f'⏰ Норма часов: **{norm}**')
+    with col3: st.info(f' Праздников: **{len(month_info["holidays"])}**')
     with col4: st.info(f'🟠 Сокращённых: **{len(month_info["short"])}**')
     
     st.markdown('---')
@@ -366,11 +384,11 @@ elif page == 'input':
     
     for day in range(1, days_count + 1):
         if day in cal['holidays']:
-            day_label = f'{day}'
+            day_label = f'🔴{day}'
         elif day in cal['short']:
-            day_label = f'🟠{day}'
+            day_label = f'{day}'
         elif day in cal['weekends']:
-            day_label = f'🟣{day}'
+            day_label = f'{day}'
         else:
             day_label = str(day)
         
@@ -431,20 +449,23 @@ elif page == 'input':
                 if total_emp > 0:
                     add_to_feed(
                         f'{emp} проставил часы за {month}: {total_emp:.1f} ч ({days_worked} дн.) 🔒',
-                        ''
+                        '⏱'
                     )
                     mark_checkin(emp, month, days_worked)
         
-        with st.spinner('Сохранение в облако...'):
-            success, msg = save_to_cloud(get_all_data())
-            st.session_state.cloud_status = msg
+        with st.spinner('Сохранение...'):
+            local_ok, cloud_ok, cloud_msg = save_everywhere()
+            st.session_state.cloud_status = cloud_msg
             
-            if success:
+            if cloud_ok:
                 st.success('✅ Данные сохранены в облако и ЗАФИКСИРОВАНЫ!')
                 st.balloons()
-                st.rerun()
+            elif local_ok:
+                st.warning(f'⚠️ Сохранено только локально (облако недоступно). Данные не пропадут!')
             else:
-                st.error(msg)
+                st.error(f'❌ Ошибка: {cloud_msg}')
+            
+            st.rerun()
     
     st.markdown('---')
     st.markdown('**🔒 Статус блокировки:**')
@@ -453,16 +474,6 @@ elif page == 'input':
             st.success(f'✅ {emp} — данные зафиксированы 🔒')
         else:
             st.warning(f'⚠️ {emp} — можно редактировать')
-    
-    st.markdown('---')
-    st.markdown('**📌 Легенда:**')
-    st.markdown('''
-    <span style="background-color: #FCA5A5; color: #991B1B; display: inline-block; padding: 5px 10px; margin: 2px; border-radius: 5px; font-size: 12px;"> Праздник</span>
-    <span style="background-color: #FED7AA; color: #9A3412; display: inline-block; padding: 5px 10px; margin: 2px; border-radius: 5px; font-size: 12px;">🟠 Сокращённый</span>
-    <span style="background-color: #E9D5FF; color: #6B21A8; display: inline-block; padding: 5px 10px; margin: 2px; border-radius: 5px; font-size: 12px;"> Выходной</span>
-    <span style="background-color: #374151; color: white; display: inline-block; padding: 5px 10px; margin: 2px; border-radius: 5px; font-size: 12px;">⚪ Рабочий</span>
-    ''', unsafe_allow_html=True)
-    st.markdown('💡 **Переработка** = всё что больше 8 часов в день')
 
 # ============================================
 # ЛЕНТА АКТИВНОСТИ
@@ -481,7 +492,7 @@ elif page == 'activity':
         checkin_data.append({
             'Сотрудник': emp,
             'Серия дней': streak,
-            'Статус': ' В игре' if streak > 0 else '😴 Не активен'
+            'Статус': '🔥 В игре' if streak > 0 else '😴 Не активен'
         })
     
     df_checkin = pd.DataFrame(checkin_data).sort_values('Серия дней', ascending=False)
@@ -489,10 +500,10 @@ elif page == 'activity':
     
     st.markdown('---')
     
-    st.subheader('📰 Последние события')
+    st.subheader(' Последние события')
     
     if len(st.session_state.feed) == 0:
-        st.info('📭 Лента пуста. Начни вводить часы — события появятся здесь!')
+        st.info(' Лента пуста. Начни вводить часы — события появятся здесь!')
     else:
         for item in st.session_state.feed:
             st.markdown(f"""
@@ -506,9 +517,9 @@ elif page == 'activity':
     
     st.markdown('---')
     
-    if st.button('️ Очистить ленту', use_container_width=True):
+    if st.button('🗑️ Очистить ленту', use_container_width=True):
         st.session_state.feed = []
-        save_to_cloud(get_all_data())
+        save_everywhere()
         st.success('Лента очищена!')
         st.rerun()
 
@@ -544,8 +555,8 @@ elif page == 'votes':
                 if st.button('✅ Голосовать за работящего', type='primary', use_container_width=True):
                     st.session_state.votes['hardworker'][voter] = hardworker_choice
                     st.session_state.votes['voters'].append(voter)
-                    add_to_feed(f'Проведено анонимное голосование за работящего недели 💪', '🗳️')
-                    save_to_cloud(get_all_data())
+                    add_to_feed(f'Проведено анонимное голосование за работящего недели 💪', '️')
+                    save_everywhere()
                     st.success('✅ Голос засчитан анонимно!')
                     st.rerun()
             
@@ -561,7 +572,7 @@ elif page == 'votes':
                     if voter not in st.session_state.votes['voters']:
                         st.session_state.votes['voters'].append(voter)
                     add_to_feed(f'Проведено анонимное голосование за халявщика недели 😴', '️')
-                    save_to_cloud(get_all_data())
+                    save_everywhere()
                     st.success('✅ Голос засчитан анонимно!')
                     st.rerun()
     
@@ -648,7 +659,7 @@ elif page == 'votes':
             'voters': []
         }
         add_to_feed('🔄 Начато новое голосование недели!', '🗳️')
-        save_to_cloud(get_all_data())
+        save_everywhere()
         st.success('Голосование сброшено!')
         st.rerun()
 
@@ -690,7 +701,7 @@ elif page == 'rating':
             with col2:
                 st.markdown(f"""
                 <div style="background:linear-gradient(135deg, #FFD700, #FFA500); padding:30px; border-radius:10px; text-align:center; border:3px solid gold;">
-                <h1></h1><h2>{df.iloc[0]["Сотрудник"]}</h2>
+                <h1>🥇</h1><h2>{df.iloc[0]["Сотрудник"]}</h2>
                 <p style="font-size:24px;"><b>{df.iloc[0]["Часы"]:.1f} ч</b></p>
                 <p>Переработка: {df.iloc[0]["Переработка"]:.1f} ч</p>
                 <p style="font-size:20px; color:#000;"><b>ЕБАТЬ ТЫ МОЛОДЕЦ!</b></p>
@@ -710,7 +721,7 @@ elif page == 'rating':
         st.dataframe(df, use_container_width=True)
         
         st.markdown('---')
-        st.subheader(' Награды месяца')
+        st.subheader('🏅 Награды месяца')
         col1, col2 = st.columns(2)
         with col1:
             st.markdown(f"""
