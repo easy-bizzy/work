@@ -3,20 +3,20 @@ import pandas as pd
 import requests
 import base64
 import json
-import os
 from datetime import datetime
 
-st.set_page_config(page_title="Учёт часов", page_icon="", layout="wide")
+st.set_page_config(page_title="Учёт рабочего времени", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
 
-# НАСТРОЙКИ — токен берётся из Streamlit Secrets
+# ============================================
+# НАСТРОЙКИ GITHUB (токен из Streamlit Secrets)
+# ============================================
 GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
 REPO_OWNER = "easy-bizzy"
 REPO_NAME = "work"
 FILE_PATH = "data.json"
 
-# Диагностика токена
 if not GITHUB_TOKEN:
-    st.error("❌ Токен не найден! Добавь его в Streamlit Secrets.")
+    st.error("❌ Токен не найден! Добавь GITHUB_TOKEN в Streamlit Secrets.")
     st.stop()
 
 def get_headers():
@@ -31,39 +31,43 @@ def load_from_github():
         if r.status_code == 200:
             content = base64.b64decode(r.json()['content']).decode('utf-8')
             return json.loads(content), True
-        elif r.status_code == 401:
-            st.sidebar.error("❌ Неверный токен! Проверь Secrets.")
-            return None, False
-        elif r.status_code == 404:
-            st.sidebar.error("❌ Файл data.json не найден в репозитории!")
-            return None, False
-        else:
-            st.sidebar.error(f"❌ Ошибка {r.status_code}")
-            return None, False
-    except Exception as e:
-        st.sidebar.error(f"❌ {e}")
+        return None, False
+    except:
         return None, False
 
 def save_to_github(data):
     try:
         r = requests.get(get_file_url(), headers=get_headers(), timeout=10)
         sha = r.json()['sha'] if r.status_code == 200 else None
-        
-        content = json.dumps(data, ensure_ascii=False, indent=2)
-        encoded = base64.b64encode(content.encode('utf-8')).decode('utf-8')
-        
-        payload = {"message": f"Update {datetime.now().strftime('%H:%M:%S')}", 
-                   "content": encoded, "branch": "main"}
+        encoded = base64.b64encode(json.dumps(data, ensure_ascii=False).encode('utf-8')).decode('utf-8')
+        payload = {"message": f"Update {datetime.now().strftime('%H:%M:%S')}", "content": encoded, "branch": "main"}
         if sha:
             payload["sha"] = sha
-        
         r = requests.put(get_file_url(), headers=get_headers(), json=payload, timeout=10)
         return r.status_code in [200, 201]
-    except Exception as e:
-        st.sidebar.error(f"❌ {e}")
+    except:
         return False
 
-# ИНИЦИАЛИЗАЦИЯ
+# ============================================
+# ДАННЫЕ
+# ============================================
+EMPLOYEES = ['Виталя', 'Василий', 'Александр П', 'Александр О', 'Игорь', 'Стас']
+MONTHS = ['ИЮЛЬ', 'АВГУСТ', 'СЕНТЯБРЬ', 'ОКТЯБРЬ', 'НОЯБРЬ', 'ДЕКАБРЬ']
+
+MONTHS_DATA = {
+    'ИЮЛЬ': {'norm': 184, 'workdays': 23, 'weekends': [4,5,11,12,18,19,25,26], 'holidays': [], 'short': []},
+    'АВГУСТ': {'norm': 168, 'workdays': 21, 'weekends': [1,2,8,9,15,16,22,23,29,30], 'holidays': [], 'short': []},
+    'СЕНТЯБРЬ': {'norm': 176, 'workdays': 22, 'weekends': [5,6,12,13,19,20,26,27], 'holidays': [], 'short': []},
+    'ОКТЯБРЬ': {'norm': 176, 'workdays': 22, 'weekends': [3,4,10,11,17,18,24,25,31], 'holidays': [], 'short': []},
+    'НОЯБРЬ': {'norm': 160, 'workdays': 20, 'weekends': [1,7,8,14,15,21,22,28,29], 'holidays': [4], 'short': [3]},
+    'ДЕКАБРЬ': {'norm': 184, 'workdays': 23, 'weekends': [5,6,12,13,19,20,26,27], 'holidays': [], 'short': [31]},
+}
+
+DAYS_IN_MONTH = {'ИЮЛЬ': 31, 'АВГУСТ': 31, 'СЕНТЯБРЬ': 30, 'ОКТЯБРЬ': 31, 'НОЯБРЬ': 30, 'ДЕКАБРЬ': 31}
+
+# ============================================
+# ИНИЦИАЛИЗАЦИЯ (загрузка при старте)
+# ============================================
 if 'hours_data' not in st.session_state:
     data, ok = load_from_github()
     if ok and data:
@@ -77,16 +81,35 @@ if 'hours_data' not in st.session_state:
         st.session_state.votes = {'hardworker': {}, 'slacker': {}, 'voters': []}
         st.session_state.locked_data = {}
 
-# ДАННЫЕ
-EMPLOYEES = ['Виталя', 'Василий', 'Александр П', 'Александр О', 'Игорь', 'Стас']
-MONTHS = ['ИЮЛЬ', 'АВГУСТ', 'СЕНТЯБРЬ', 'ОКТЯБРЬ', 'НОЯБРЬ', 'ДЕКАБРЬ']
-DAYS_IN_MONTH = {'ИЮЛЬ': 31, 'АВГУСТ': 31, 'СЕНТЯБРЬ': 30, 'ОКТЯБРЬ': 31, 'НОЯБРЬ': 30, 'ДЕКАБРЬ': 31}
-
+# ============================================
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# ============================================
 def get_hours(month, emp):
     key = f"{month}_{emp}"
     if key not in st.session_state.hours_data:
         st.session_state.hours_data[key] = [0.0] * 31
     return st.session_state.hours_data[key]
+
+def is_locked(month, emp):
+    return st.session_state.locked_data.get(f"{month}_{emp}", False)
+
+def lock_data(month, emp):
+    st.session_state.locked_data[f"{month}_{emp}"] = True
+
+def add_to_feed(message, emoji=''):
+    now = datetime.now().strftime('%d.%m %H:%M')
+    st.session_state.feed.insert(0, {'time': now, 'emoji': emoji, 'message': message})
+    if len(st.session_state.feed) > 50:
+        st.session_state.feed = st.session_state.feed[:50]
+
+def calc_stats(hours, norm, workdays):
+    total = sum(hours)
+    overtime = sum(max(0, h - 8) for h in hours if h > 0)
+    efficiency = (total / norm * 100) if norm > 0 else 0
+    remaining_hours = max(0, norm - total)
+    workdays_worked = sum(1 for h in hours if h > 0)
+    remaining_days = max(0, workdays - workdays_worked)
+    return total, overtime, efficiency, remaining_hours, workdays_worked, remaining_days
 
 def get_all_data():
     return {
@@ -96,10 +119,13 @@ def get_all_data():
         'locked': st.session_state.locked_data
     }
 
-# ИНТЕРФЕЙС
+# ============================================
+# БОКОВАЯ ПАНЕЛЬ
+# ============================================
 st.sidebar.title("📊 Учёт часов")
+st.sidebar.write(f"Записей: {len(st.session_state.hours_data)}")
 
-if st.sidebar.button(" СОХРАНИТЬ В GITHUB", type="primary", use_container_width=True):
+if st.sidebar.button("💾 СОХРАНИТЬ В GITHUB", type="primary", use_container_width=True):
     with st.spinner("Сохранение..."):
         ok = save_to_github(get_all_data())
         if ok:
@@ -108,7 +134,7 @@ if st.sidebar.button(" СОХРАНИТЬ В GITHUB", type="primary", use_contai
         else:
             st.sidebar.error("❌ Ошибка!")
 
-if st.sidebar.button("🔄 Загрузить из GitHub", use_container_width=True):
+if st.sidebar.button(" Загрузить из GitHub", use_container_width=True):
     with st.spinner("Загрузка..."):
         data, ok = load_from_github()
         if ok and data:
@@ -125,84 +151,210 @@ st.sidebar.markdown("---")
 page = st.sidebar.radio("Меню", ["input", "dashboard", "activity", "votes", "rating"])
 month = st.sidebar.selectbox("📅 Месяц", MONTHS)
 
+month_info = MONTHS_DATA[month]
+norm = month_info['norm']
+workdays = month_info['workdays']
+
+st.sidebar.markdown("---")
+st.sidebar.markdown(f"**{month} 2026**")
+st.sidebar.markdown(f"Рабочих дней: **{workdays}**")
+st.sidebar.markdown(f"Норма часов: **{norm}**")
+
+# ============================================
 # ВВОД ЧАСОВ
+# ============================================
 if page == "input":
-    st.title(f"⏱️ Ввод часов - {month}")
+    st.title(f"⏱️ Ввод часов - {month} 2026")
+
+    cal = month_info
     days_count = DAYS_IN_MONTH[month]
-    
+
+    # CSS для цветных колонок
+    css_rules = []
+    for day in range(1, days_count + 1):
+        ci = day + 1
+        if day in cal['holidays']:
+            css_rules.append(f'div[data-testid="stDataFrame"] table tr th:nth-child({ci}), div[data-testid="stDataFrame"] table tr td:nth-child({ci}) {{ background-color: #FCA5A5 !important; color: #991B1B !important; }}')
+        elif day in cal['short']:
+            css_rules.append(f'div[data-testid="stDataFrame"] table tr th:nth-child({ci}), div[data-testid="stDataFrame"] table tr td:nth-child({ci}) {{ background-color: #FED7AA !important; color: #9A3412 !important; }}')
+        elif day in cal['weekends']:
+            css_rules.append(f'div[data-testid="stDataFrame"] table tr th:nth-child({ci}), div[data-testid="stDataFrame"] table tr td:nth-child({ci}) {{ background-color: #E9D5FF !important; color: #6B21A8 !important; }}')
+    css_rules.append('div[data-testid="stDataFrame"] table tr th:nth-child(33), div[data-testid="stDataFrame"] table tr td:nth-child(33) { background-color: #86EFAC !important; font-weight: bold; }')
+    css_rules.append('div[data-testid="stDataFrame"] table tr th:nth-child(34), div[data-testid="stDataFrame"] table tr td:nth-child(34) { background-color: #FDE047 !important; font-weight: bold; }')
+    st.markdown(f'<style>{"".join(css_rules)}</style>', unsafe_allow_html=True)
+
+    # Легенда
+    legend = '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:15px;">'
+    for day in range(1, days_count + 1):
+        if day in cal['holidays']: c, l = '#FCA5A5', f'{day}'
+        elif day in cal['short']: c, l = '#FED7AA', f'🟠{day}'
+        elif day in cal['weekends']: c, l = '#E9D5FF', f'🟣{day}'
+        else: c, l = '#374151', str(day)
+        legend += f'<div style="background:{c};color:white;padding:4px 6px;border-radius:4px;font-size:11px;font-weight:bold;min-width:28px;text-align:center;">{l}</div>'
+    legend += '</div>'
+    st.markdown(legend, unsafe_allow_html=True)
+
+    # Таблица
     table_data = []
     for emp in EMPLOYEES:
         hours = get_hours(month, emp)
         row = {'Сотрудник': emp}
         for day in range(1, days_count + 1):
             row[str(day)] = float(hours[day-1]) if day-1 < len(hours) else 0.0
-        row['ИТОГО'] = round(sum(row[str(d)] for d in range(1, days_count + 1)), 1)
+        total = sum(row[str(d)] for d in range(1, days_count + 1))
+        overtime = sum(max(0, row[str(d)] - 8) for d in range(1, days_count + 1) if row[str(d)] > 0)
+        row['ИТОГО'] = round(total, 1)
+        row['ПЕРЕРАБ'] = round(overtime, 1)
         table_data.append(row)
-    
+
     df_input = pd.DataFrame(table_data)
     column_config = {
         'Сотрудник': st.column_config.TextColumn('Сотрудник', disabled=True),
         'ИТОГО': st.column_config.NumberColumn('ИТОГО', format='%.1f', disabled=True),
+        'ПЕРЕРАБ': st.column_config.NumberColumn('ПЕРЕРАБ', format='%.1f', disabled=True),
     }
     for day in range(1, days_count + 1):
         column_config[str(day)] = st.column_config.NumberColumn(str(day), min_value=0.0, max_value=24.0, step=0.5, format='%.1f', width='small')
-    
+
     edited_df = st.data_editor(df_input, column_config=column_config, hide_index=True, use_container_width=True, num_rows='fixed', key='hours_table')
-    
+
     st.markdown("---")
-    
-    if st.button("💾 СОХРАНИТЬ ДАННЫЕ", type="primary", use_container_width=True):
+
+    if st.button("💾 СОХРАНИТЬ ДАННЫЕ И ЗАФИКСИРОВАТЬ", type="primary", use_container_width=True):
+        saved = 0
         for idx, emp in enumerate(EMPLOYEES):
             if idx < len(edited_df):
+                if is_locked(month, emp):
+                    continue
                 new_hours = []
+                total_emp = 0
                 for day in range(1, days_count + 1):
                     try: val = float(edited_df.iloc[idx][str(day)])
                     except: val = 0.0
                     new_hours.append(val)
-                while len(new_hours) < 31: new_hours.append(0.0)
+                    total_emp += val
+                while len(new_hours) < 31:
+                    new_hours.append(0.0)
                 st.session_state.hours_data[f"{month}_{emp}"] = new_hours[:31]
-                total = sum(new_hours[:31])
-                if total > 0:
-                    st.session_state.feed.insert(0, {
-                        'time': datetime.now().strftime('%d.%m %H:%M'),
-                        'emoji': '⏱',
-                        'message': f'{emp}: {total:.1f} ч'
-                    })
-        
+                lock_data(month, emp)
+                saved += 1
+                if total_emp > 0:
+                    add_to_feed(f'{emp}: {total_emp:.1f} ч', '⏱')
+
         ok = save_to_github(get_all_data())
         if ok:
-            st.success("✅ ДАННЫЕ СОХРАНЕНЫ В GITHUB!")
+            st.success(f"✅ Сохранено! Зафиксировано сотрудников: {saved}")
             st.balloons()
         else:
             st.error("❌ ОШИБКА СОХРАНЕНИЯ!")
         st.rerun()
 
-# ДАШБОРД
-elif page == "dashboard":
-    st.title(f"📊 Дашборд - {month}")
-    stats = [{'Сотрудник': emp, 'Часы': sum(get_hours(month, emp))} for emp in EMPLOYEES]
-    df = pd.DataFrame(stats)
-    st.dataframe(df, use_container_width=True, hide_index=True)
-    if df['Часы'].sum() > 0:
-        st.bar_chart(df.set_index('Сотрудник'))
+    st.markdown("---")
+    st.markdown("**🔒 Статус блокировки:**")
+    for emp in EMPLOYEES:
+        if is_locked(month, emp):
+            st.success(f"✅ {emp} - зафиксировано (нельзя менять)")
+        else:
+            st.warning(f"⚠️ {emp} - можно редактировать")
 
-# ЛЕНТА
+    st.markdown("---")
+    st.markdown("**📌 Легенда:** 🔴 Праздник | 🟠 Сокращённый |  Выходной | ⚪ Рабочий")
+
+# ============================================
+# ДАШБОРД
+# ============================================
+elif page == "dashboard":
+    st.title(f"📊 Дашборд - {month} 2026")
+
+    stats_list = []
+    for emp in EMPLOYEES:
+        hours = get_hours(month, emp)
+        total, overtime, efficiency, remaining_hours, workdays_worked, remaining_days = calc_stats(hours, norm, workdays)
+        locked = '🔒' if is_locked(month, emp) else '🔓'
+        stats_list.append({
+            'Сотрудник': f'{locked} {emp}',
+            'Отработано часов': total,
+            'Норма часов': norm,
+            'Осталось часов': remaining_hours,
+            '% выполнения': f'{efficiency:.1f}%',
+            'Отработано дней': workdays_worked,
+            'Переработка': overtime
+        })
+
+    df = pd.DataFrame(stats_list)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("⏱ Часы vs Норма")
+        if not df.empty:
+            st.bar_chart(df.set_index('Сотрудник')[['Отработано часов', 'Норма часов']])
+    with col2:
+        st.subheader("🔥 Переработка")
+        if not df.empty:
+            st.bar_chart(df.set_index('Сотрудник')['Переработка'])
+
+    st.markdown("---")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        top = df.loc[df['Отработано часов'].idxmax()]
+        st.metric("🏆 Лидер", top['Сотрудник'], f"{top['Отработано часов']:.1f} ч")
+    with col2:
+        st.metric("🔥 Всего переработок", f"{df['Переработка'].sum():.1f} ч")
+    with col3:
+        done = len(df[df['Осталось часов'] == 0])
+        st.metric("✅ Выполнили норму", f'{done} чел.')
+
+    st.markdown("---")
+    st.subheader("📊 Детальная статистика")
+    df_sorted = df.sort_values('Отработано часов', ascending=False).reset_index(drop=True)
+    
+    for idx, row in df_sorted.iterrows():
+        emp = row['Сотрудник']
+        st.markdown(f"### {idx+1}. {emp}")
+        c1, c2, c3, c4 = st.columns(4)
+        with c1: st.metric("Всего часов", f"{row['Отработано часов']:.1f} / {norm}")
+        with c2: st.metric("Рабочих дней", f"{row['Отработано дней']} / {workdays}")
+        with c3: st.metric("Переработка", f"{row['Переработка']:.1f} ч")
+        with c4:
+            rem = row['Осталось часов']
+            st.metric("Осталось", f"{rem:.1f} ч" if rem > 0 else "✅ Выполнено")
+        
+        pct = float(row['% выполнения'].replace('%', ''))
+        st.progress(min(pct/100, 1.0), text=f"{pct:.1f}%")
+        st.markdown("---")
+
+# ============================================
+# ЛЕНТА АКТИВНОСТИ
+# ============================================
 elif page == "activity":
     st.title("📱 Лента активности")
+
     if len(st.session_state.feed) == 0:
-        st.info("📭 Лента пуста.")
+        st.info(" Лента пуста.")
     else:
         for item in st.session_state.feed:
-            st.markdown(f"**{item['time']}** {item['emoji']} {item['message']}")
-    if st.button("🗑️ Очистить"):
+            st.markdown(f"""
+            <div style="background:#1e293b;padding:15px;border-radius:10px;margin-bottom:10px;border-left:4px solid #3b82f6;">
+                <span style="font-size:14px;color:white;">{item['emoji']} {item['message']}</span>
+                <span style="font-size:12px;color:#94a3b8;float:right;">{item['time']}</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+    if st.button("🗑️ Очистить ленту"):
         st.session_state.feed = []
         save_to_github(get_all_data())
         st.rerun()
 
+# ============================================
 # ГОЛОСОВАНИЯ
+# ============================================
 elif page == "votes":
-    st.title("🗳️ Голосования")
-    voter = st.selectbox(" Кто голосует?", ['— Выбери себя —'] + EMPLOYEES)
+    st.title("️ Голосования недели")
+
+    voter = st.selectbox("👤 Кто голосует?", ['— Выбери себя —'] + EMPLOYEES)
+
     if voter != '— Выбери себя —':
         already = voter in st.session_state.votes['voters']
         if already:
@@ -210,26 +362,99 @@ elif page == "votes":
         else:
             col1, col2 = st.columns(2)
             with col1:
-                hw = st.radio("💪 Работящий:", [e for e in EMPLOYEES if e != voter], key='hw')
-                if st.button("Голосовать за работящего"):
+                st.subheader("💪 Самый работящий")
+                hw = st.radio("Выбери:", [e for e in EMPLOYEES if e != voter], key='hw')
+                if st.button("Голосовать за работящего", key='btn_hw'):
                     st.session_state.votes['hardworker'][voter] = hw
                     st.session_state.votes['voters'].append(voter)
+                    add_to_feed(f'Голосование: {voter} выбрал работягу', '🗳️')
                     save_to_github(get_all_data())
-                    st.success("✅ Голос засчитан!")
+                    st.success("✅ Голос засчитан анонимно!")
                     st.rerun()
             with col2:
-                sl = st.radio("😴 Халявщик:", [e for e in EMPLOYEES if e != voter], key='sl')
-                if st.button("Голосовать за халявщика"):
+                st.subheader("😴 Главный халявщик")
+                sl = st.radio("Выбери:", [e for e in EMPLOYEES if e != voter], key='sl')
+                if st.button("Голосовать за халявщика", key='btn_sl'):
                     st.session_state.votes['slacker'][voter] = sl
                     if voter not in st.session_state.votes['voters']:
                         st.session_state.votes['voters'].append(voter)
+                    add_to_feed(f'Голосование: {voter} выбрал халявщика', '🗳️')
                     save_to_github(get_all_data())
-                    st.success("✅ Голос засчитан!")
+                    st.success("✅ Голос засчитан анонимно!")
                     st.rerun()
 
+    st.markdown("---")
+    st.subheader("📊 Результаты")
+    hw_votes = {e: sum(1 for v in st.session_state.votes['hardworker'].values() if v == e) for e in EMPLOYEES}
+    sl_votes = {e: sum(1 for v in st.session_state.votes['slacker'].values() if v == e) for e in EMPLOYEES}
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("**💪 Работящий недели:**")
+        for e, v in sorted(hw_votes.items(), key=lambda x: x[1], reverse=True):
+            if v > 0: st.write(f"{e}: {'█' * v} ({v})")
+    with col2:
+        st.markdown("**😴 Халявщик недели:**")
+        for e, v in sorted(sl_votes.items(), key=lambda x: x[1], reverse=True):
+            if v > 0: st.write(f"{e}: {'█' * v} ({v})")
+
+    top_hw = max(hw_votes, key=hw_votes.get) if any(v > 0 for v in hw_votes.values()) else None
+    top_sl = max(sl_votes, key=sl_votes.get) if any(v > 0 for v in sl_votes.values()) else None
+    
+    if top_hw or top_sl:
+        st.markdown("---")
+        st.subheader("🏆 Лидеры")
+        c1, c2 = st.columns(2)
+        if top_hw and hw_votes[top_hw] > 0:
+            with c1:
+                st.markdown(f'<div style="background:linear-gradient(135deg,#10b981,#059669);padding:20px;border-radius:10px;text-align:center;"><h2>💪 РАБОТЯГА</h2><h3>{top_hw}</h3><p>{hw_votes[top_hw]} голосов</p></div>', unsafe_allow_html=True)
+        if top_sl and sl_votes[top_sl] > 0:
+            with c2:
+                st.markdown(f'<div style="background:linear-gradient(135deg,#ef4444,#dc2626);padding:20px;border-radius:10px;text-align:center;"><h2>😴 ХАЛЯВЩИК</h2><h3>{top_sl}</h3><p>{sl_votes[top_sl]} голосов</p></div>', unsafe_allow_html=True)
+
+    if st.button("🔄 Новое голосование"):
+        st.session_state.votes = {'hardworker': {}, 'slacker': {}, 'voters': []}
+        add_to_feed('Начато новое голосование', '🗳️')
+        save_to_github(get_all_data())
+        st.rerun()
+
+# ============================================
 # РЕЙТИНГ
+# ============================================
 elif page == "rating":
     st.title(f"🏆 Рейтинг - {month}")
-    stats = [{'Сотрудник': emp, 'Часы': sum(get_hours(month, emp))} for emp in EMPLOYEES]
-    df = pd.DataFrame(stats).sort_values('Часы', ascending=False)
-    st.dataframe(df, use_container_width=True)
+
+    stats_list = []
+    for emp in EMPLOYEES:
+        hours = get_hours(month, emp)
+        total, overtime, efficiency, *_ = calc_stats(hours, norm, workdays)
+        stats_list.append({'Сотрудник': emp, 'Часы': total, 'Переработка': overtime, 'Эффективность %': round(efficiency, 1)})
+
+    df = pd.DataFrame(stats_list).sort_values('Часы', ascending=False).reset_index(drop=True)
+
+    if df['Часы'].sum() == 0:
+        st.warning("⚠️ Нет данных за этот месяц.")
+    else:
+        st.markdown("---")
+        st.subheader("🏆 Подиум")
+        
+        if len(df) >= 3:
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown(f'<div style="background:#C0C0C0;padding:20px;border-radius:10px;text-align:center;"><h2></h2><h3>{df.iloc[1]["Сотрудник"]}</h3><p><b>{df.iloc[1]["Часы"]:.1f} ч</b></p><p>Переработка: {df.iloc[1]["Переработка"]:.1f} ч</p></div>', unsafe_allow_html=True)
+            with col2:
+                st.markdown(f'<div style="background:linear-gradient(135deg,#FFD700,#FFA500);padding:30px;border-radius:10px;text-align:center;border:3px solid gold;"><h1>🥇</h1><h2>{df.iloc[0]["Сотрудник"]}</h2><p style="font-size:24px;"><b>{df.iloc[0]["Часы"]:.1f} ч</b></p><p style="color:#000;font-size:20px;"><b>ЕБАТЬ ТЫ МОЛОДЕЦ!</b></p><p>Переработка: {df.iloc[0]["Переработка"]:.1f} ч</p></div>', unsafe_allow_html=True)
+            with col3:
+                st.markdown(f'<div style="background:#CD7F32;padding:20px;border-radius:10px;text-align:center;"><h2>🥉</h2><h3>{df.iloc[2]["Сотрудник"]}</h3><p><b>{df.iloc[2]["Часы"]:.1f} ч</b></p><p>Переработка: {df.iloc[2]["Переработка"]:.1f} ч</p></div>', unsafe_allow_html=True)
+
+        st.markdown("---")
+        st.subheader("📋 Полный рейтинг")
+        st.dataframe(df, use_container_width=True)
+
+        st.markdown("---")
+        st.subheader("🏅 Награды месяца")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f'<div style="background:linear-gradient(135deg,#FFD700,#FFA500);padding:20px;border-radius:10px;border:2px solid gold;"><h2>🏆 ГРАМОТА</h2><h3 style="color:#000;">ЕБАТЬ ТЫ МОЛОДЕЦ</h3><p><b>{df.iloc[0]["Сотрудник"]}</b></p><p>{df.iloc[0]["Часы"]:.1f} часов | {df.iloc[0]["Переработка"]:.1f} ч переработки</p></div>', unsafe_allow_html=True)
+        with col2:
+            st.markdown(f'<div style="background:linear-gradient(135deg,#8B4513,#654321);padding:20px;border-radius:10px;border:2px solid #8B4513;"><h2>📜 АНТИНАГРАДА</h2><h3 style="color:#FFD700;">ЛОХ</h3><p><b>{df.iloc[-1]["Сотрудник"]}</b></p><p>{df.iloc[-1]["Часы"]:.1f} часов | эффективность {df.iloc[-1]["Эффективность %"]:.0f}%</p></div>', unsafe_allow_html=True)
