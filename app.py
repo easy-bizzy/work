@@ -8,7 +8,7 @@ from datetime import datetime
 st.set_page_config(page_title="Учёт часов", page_icon="", layout="wide")
 
 # НАСТРОЙКИ
-GITHUB_TOKEN = "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"
+GITHUB_TOKEN = "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"
 REPO_OWNER = "easy-bizzy"
 REPO_NAME = "work"
 FILE_PATH = "data.json"
