@@ -4,66 +4,47 @@ import json
 from datetime import date, datetime
 import requests
 
-st.set_page_config(page_title="Учёт рабочего времени", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Учёт рабочего времени", page_icon="", layout="wide")
 
 # ============================================
 # НАСТРОЙКИ JSONBIN
 # ============================================
 API_KEY = "$2a$10$fdP3BAMcCh8G0kJpVurg7.fqWCvq9jsXK.yzOcd0ynCzs4H2PEoVC"
-BIN_ID = "6a53ccceda38895dfe534f3f"
+BIN_ID = "6a550654da38895dfe578dd3"
 
 # ============================================
-# ФУНКЦИИ С ПОДРОБНОЙ ДИАГНОСТИКОЙ
+# ФУНКЦИИ ОБЛАКА
 # ============================================
 def load_from_cloud():
-    """Загрузка с полной диагностикой"""
+    """Загрузка данных из JSONBin"""
     try:
         headers = {'X-Master-Key': API_KEY}
         url = f'https://api.jsonbin.io/v3/b/{BIN_ID}/latest'
         response = requests.get(url, headers=headers, timeout=10)
         
-        print(f"📥 GET запрос: {response.status_code}")
-        
         if response.status_code == 200:
             data = response.json()
             if 'record' in data:
-                record = data['record']
-                hours_count = len(record.get('hours', {}))
-                print(f"✅ Загружено записей часов: {hours_count}")
-                return record, f"✅ Загружено {hours_count} записей"
+                return data['record'], "✅ Загружено из облака"
             else:
-                print(f"⚠️ Нет поля 'record' в ответе")
-                return None, "⚠️ Нет данных в бине"
+                return None, "⚠️ Бин пустой"
         else:
-            print(f"❌ Ошибка: {response.status_code} - {response.text}")
             return None, f"❌ Ошибка {response.status_code}"
     except Exception as e:
-        print(f"❌ Исключение: {e}")
         return None, f"❌ {e}"
 
 def save_to_cloud(data):
-    """Сохранение с полной диагностикой"""
+    """Сохранение данных в JSONBin"""
     try:
         headers = {'X-Master-Key': API_KEY, 'Content-Type': 'application/json'}
         url = f'https://api.jsonbin.io/v3/b/{BIN_ID}'
-        
-        data_json = json.dumps(data, ensure_ascii=False)
-        print(f"📤 PUT запрос, размер: {len(data_json)} байт")
-        print(f"📊 Записей часов: {len(data.get('hours', {}))}")
-        
         response = requests.put(url, headers=headers, json=data, timeout=10)
-        print(f"📥 Ответ: {response.status_code}")
         
         if response.status_code == 200:
-            result = response.json()
-            print(f"✅ Сохранено успешно")
-            return True, "✅ Сохранено"
+            return True, "✅ Сохранено в облако"
         else:
-            print(f"❌ Ошибка сохранения: {response.status_code}")
-            print(f"📄 Ответ: {response.text}")
             return False, f"❌ Ошибка {response.status_code}: {response.text}"
     except Exception as e:
-        print(f"❌ Исключение при сохранении: {e}")
         return False, f"❌ {e}"
 
 # ============================================
@@ -83,12 +64,8 @@ MONTHS_DATA = {
 DAYS_IN_MONTH = {'ИЮЛЬ': 31, 'АВГУСТ': 31, 'СЕНТЯБРЬ': 30, 'ОКТЯБРЬ': 31, 'НОЯБРЬ': 30, 'ДЕКАБРЬ': 31}
 
 # ============================================
-# ЗАГРУЗКА ПРИ СТАРТЕ (ВСЕГДА)
+# ЗАГРУЗКА ДАННЫХ ПРИ КАЖДОМ ЗАПУСКЕ
 # ============================================
-print("\n" + "="*50)
-print(" ЗАПУСК ПРИЛОЖЕНИЯ")
-print("="*50)
-
 cloud_data, cloud_msg = load_from_cloud()
 
 if cloud_data:
@@ -98,7 +75,6 @@ if cloud_data:
     st.session_state.checkins = cloud_data.get('checkins', {})
     st.session_state.locked_data = cloud_data.get('locked', {})
     st.session_state.cloud_status = cloud_msg
-    print(f"✅ Данные загружены в session_state")
 else:
     if 'hours_data' not in st.session_state:
         st.session_state.hours_data = {}
@@ -107,9 +83,6 @@ else:
         st.session_state.checkins = {}
         st.session_state.locked_data = {}
     st.session_state.cloud_status = cloud_msg
-    print(f"⚠️ Данные не загружены: {cloud_msg}")
-
-print("="*50 + "\n")
 
 # ============================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -161,24 +134,29 @@ st.sidebar.title('📊 Учет рабочего времени')
 st.sidebar.markdown('### ☁️ Статус')
 st.sidebar.info(st.session_state.cloud_status)
 
-# Показать что сейчас в памяти
-with st.sidebar.expander('🔍 Что в памяти сейчас'):
-    st.write(f"**Записей часов:** {len(st.session_state.hours_data)}")
-    if st.session_state.hours_data:
-        for key in list(st.session_state.hours_data.keys())[:3]:
-            st.write(f"- {key}")
+st.sidebar.markdown(f'**Bin ID:** `{BIN_ID}`')
+
+# Кнопка проверки связи
+if st.sidebar.button('🔍 Проверить связь', use_container_width=True):
+    with st.spinner('Проверка...'):
+        data, msg = load_from_cloud()
+        if data:
+            hours_count = len(data.get('hours', {}))
+            st.sidebar.success(f"✅ Связь есть! Записей: {hours_count}")
+            st.sidebar.write(f"**Записи:** {list(data.get('hours', {}).keys())}")
+        else:
+            st.sidebar.error(f"❌ {msg}")
 
 # Кнопка сохранения
-if st.sidebar.button('💾 СОХРАНИТЬ В ОБЛАКО', type='primary', use_container_width=True):
+if st.sidebar.button('💾 Сохранить сейчас', type='primary', use_container_width=True):
     with st.spinner('Сохранение...'):
-        data = get_all_data()
-        ok, msg = save_to_cloud(data)
+        ok, msg = save_to_cloud(get_all_data())
         st.session_state.cloud_status = msg
         if ok:
             st.sidebar.success("✅ Сохранено!")
             st.success("Данные сохранены в облако!")
         else:
-            st.sidebar.error(f" {msg}")
+            st.sidebar.error(f"❌ {msg}")
             st.error(f"Ошибка: {msg}")
 
 # Кнопка загрузки
@@ -200,13 +178,18 @@ if st.sidebar.button('🔄 Загрузить из облака', use_container_
 
 st.sidebar.markdown('---')
 
-# Прямая ссылка на бин
-st.sidebar.markdown(f'**Bin ID:** `{BIN_ID}`')
-st.sidebar.markdown(f'[🔗 Открыть в JSONBin](https://jsonbin.io/b/{BIN_ID})')
+# Показать что в памяти
+with st.sidebar.expander('🔍 Что сейчас в памяти'):
+    st.write(f"**Записей часов:** {len(st.session_state.hours_data)}")
+    if st.session_state.hours_data:
+        for key in list(st.session_state.hours_data.keys())[:5]:
+            hours = st.session_state.hours_data[key]
+            total = sum(hours)
+            st.write(f"- {key}: {total:.1f} ч")
 
 st.sidebar.markdown('---')
 page = st.sidebar.radio('Меню', ['dashboard', 'input', 'activity', 'votes', 'rating'])
-month = st.sidebar.selectbox(' Месяц', MONTHS)
+month = st.sidebar.selectbox('📅 Месяц', MONTHS)
 month_info = MONTHS_DATA[month]
 norm = month_info['norm']
 workdays = month_info['workdays']
@@ -215,7 +198,7 @@ workdays = month_info['workdays']
 # ВВОД ЧАСОВ
 # ============================================
 if page == 'input':
-    st.title(f'⏱️ Ввод часов — {month} 2026')
+    st.title(f'️ Ввод часов — {month} 2026')
     
     cal = month_info
     days_count = DAYS_IN_MONTH[month]
@@ -265,13 +248,7 @@ if page == 'input':
                 if total_emp > 0:
                     add_to_feed(f'{emp}: {total_emp:.1f} ч 🔒', '⏱')
         
-        # СОХРАНЯЕМ
-        data = get_all_data()
-        print(f"\n💾 Сохраняем данные:")
-        print(f"   Записей часов: {len(data['hours'])}")
-        print(f"   Пример: {list(data['hours'].items())[:2]}")
-        
-        ok, msg = save_to_cloud(data)
+        ok, msg = save_to_cloud(get_all_data())
         st.session_state.cloud_status = msg
         
         if ok:
@@ -290,10 +267,10 @@ if page == 'input':
             st.warning(f'⚠️ {emp} — можно редактировать')
 
 # ============================================
-# ОСТАЛЬНЫЕ СТРАНИЦЫ (упрощённо)
+# ДАШБОРД
 # ============================================
 elif page == 'dashboard':
-    st.title(f' Дашборд — {month} 2026')
+    st.title(f'📊 Дашборд — {month} 2026')
     stats_list = []
     for emp in EMPLOYEES:
         hours = get_hours(month, emp)
@@ -311,14 +288,20 @@ elif page == 'dashboard':
     df = pd.DataFrame(stats_list)
     st.dataframe(df, use_container_width=True, hide_index=True)
 
+# ============================================
+# ЛЕНТА
+# ============================================
 elif page == 'activity':
     st.title('📱 Лента активности')
     if len(st.session_state.feed) == 0:
-        st.info(' Лента пуста.')
+        st.info('📭 Лента пуста.')
     else:
         for item in st.session_state.feed:
             st.markdown(f"**{item['time']}** {item['emoji']} {item['message']}")
 
+# ============================================
+# ГОЛОСОВАНИЯ
+# ============================================
 elif page == 'votes':
     st.title('🗳️ Голосования')
     voter = st.selectbox('👤 Кто голосует?', ['— Выбери себя —'] + EMPLOYEES)
@@ -329,7 +312,7 @@ elif page == 'votes':
         else:
             col1, col2 = st.columns(2)
             with col1:
-                hw_choice = st.radio(' Работящий:', [e for e in EMPLOYEES if e != voter], key='hw')
+                hw_choice = st.radio('💪 Работящий:', [e for e in EMPLOYEES if e != voter], key='hw')
                 if st.button('Голосовать за работящего'):
                     st.session_state.votes['hardworker'][voter] = hw_choice
                     st.session_state.votes['voters'].append(voter)
@@ -346,6 +329,9 @@ elif page == 'votes':
                     st.success('✅ Голос засчитан!')
                     st.rerun()
 
+# ============================================
+# РЕЙТИНГ
+# ============================================
 elif page == 'rating':
     st.title(f'🏆 Рейтинг — {month}')
     stats_list = []
