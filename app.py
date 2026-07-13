@@ -66,25 +66,26 @@ MONTHS_DATA = {
 DAYS_IN_MONTH = {'ИЮЛЬ': 31, 'АВГУСТ': 31, 'СЕНТЯБРЬ': 30, 'ОКТЯБРЬ': 31, 'НОЯБРЬ': 30, 'ДЕКАБРЬ': 31}
 
 # ============================================
-# ЗАГРУЗКА ДАННЫХ ПРИ КАЖДОМ ЗАПУСКЕ
+# ИНИЦИАЛИЗАЦИЯ (ТОЛЬКО ПЕРВЫЙ РАЗ!)
 # ============================================
-cloud_data, cloud_msg = load_from_cloud()
-
-if cloud_data:
-    st.session_state.hours_data = cloud_data.get('hours', {})
-    st.session_state.feed = cloud_data.get('feed', [])
-    st.session_state.votes = cloud_data.get('votes', {'hardworker': {}, 'slacker': {}, 'voters': []})
-    st.session_state.checkins = cloud_data.get('checkins', {})
-    st.session_state.locked_data = cloud_data.get('locked', {})
-    st.session_state.cloud_status = cloud_msg
-else:
-    if 'hours_data' not in st.session_state:
+if 'hours_data' not in st.session_state:
+    # Пытаемся загрузить из облака только при первом запуске
+    cloud_data, cloud_msg = load_from_cloud()
+    
+    if cloud_data:
+        st.session_state.hours_data = cloud_data.get('hours', {})
+        st.session_state.feed = cloud_data.get('feed', [])
+        st.session_state.votes = cloud_data.get('votes', {'hardworker': {}, 'slacker': {}, 'voters': []})
+        st.session_state.checkins = cloud_data.get('checkins', {})
+        st.session_state.locked_data = cloud_data.get('locked', {})
+        st.session_state.cloud_status = cloud_msg
+    else:
         st.session_state.hours_data = {}
         st.session_state.feed = []
         st.session_state.votes = {'hardworker': {}, 'slacker': {}, 'voters': []}
         st.session_state.checkins = {}
         st.session_state.locked_data = {}
-    st.session_state.cloud_status = cloud_msg
+        st.session_state.cloud_status = cloud_msg
 
 # ============================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -143,7 +144,7 @@ def get_all_data():
 # ============================================
 # БОКОВАЯ ПАНЕЛЬ
 # ============================================
-st.sidebar.title(' Учет рабочего времени')
+st.sidebar.title('📊 Учет рабочего времени')
 
 st.sidebar.markdown('### ☁️ Статус')
 st.sidebar.info(st.session_state.cloud_status)
@@ -197,7 +198,7 @@ with st.sidebar.expander('🔍 Что сейчас в памяти'):
 st.sidebar.markdown('---')
 
 page = st.sidebar.radio('Меню', ['dashboard', 'input', 'activity', 'votes', 'rating'])
-month = st.sidebar.selectbox('📅 Месяц', MONTHS)
+month = st.sidebar.selectbox(' Месяц', MONTHS)
 
 month_info = MONTHS_DATA[month]
 norm = month_info['norm']
@@ -209,115 +210,13 @@ st.sidebar.markdown(f'Рабочих дней: **{workdays}**')
 st.sidebar.markdown(f'Норма часов: **{norm}**')
 
 # ============================================
-# ДАШБОРД
+# ВВОД ЧАСОВ
 # ============================================
-if page == 'dashboard':
-    st.title(f'📊 Дашборд — {month} 2026')
-    
-    stats_list = []
-    for emp in EMPLOYEES:
-        hours = get_hours(month, emp)
-        total, overtime, efficiency, remaining_hours, workdays_worked, remaining_days = calc_stats(hours, norm, workdays)
-        streak = get_checkin_streak(emp)
-        locked_status = '🔒' if is_locked(month, emp) else '🔓'
-        stats_list.append({
-            'Сотрудник': f'{locked_status} {emp}',
-            'Отработано часов': total,
-            'Норма часов': norm,
-            'Осталось часов': remaining_hours,
-            'Процент выполнения': f'{efficiency:.1f}%',
-            'Отработано дней': workdays_worked,
-            'Рабочих дней в месяце': workdays,
-            'Осталось дней': remaining_days,
-            'Переработка': overtime,
-            'Серия дней 🔥': streak
-        })
-    
-    df = pd.DataFrame(stats_list)
-    
-    st.subheader('📋 Статистика по каждому сотруднику')
-    st.dataframe(df, use_container_width=True, hide_index=True)
-    
-    st.markdown('---')
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader(' Отработанные часы vs Норма')
-        if not df.empty:
-            st.bar_chart(df.set_index('Сотрудник')[['Отработано часов', 'Норма часов']])
-    with col2:
-        st.subheader('🔥 Переработка по сотрудникам')
-        if not df.empty:
-            st.bar_chart(df.set_index('Сотрудник')['Переработка'])
-    
-    st.markdown('---')
-    st.subheader('📈 Статистика')
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        top_worker = df.loc[df['Отработано часов'].idxmax()]
-        st.metric('🏆 Лидер месяца', top_worker['Сотрудник'], f"{top_worker['Отработано часов']:.1f} ч")
-    with col2:
-        st.metric('🔥 Всего переработок', f"{df['Переработка'].sum():.1f} ч")
-    with col3:
-        completed = len(df[df['Осталось часов'] == 0])
-        st.metric('✅ Выполнили норму', f'{completed} чел.')
-    
-    st.markdown('---')
-    st.subheader('📊 Детальная статистика по сотрудникам')
-    
-    df_sorted = df.sort_values('Отработано часов', ascending=False).reset_index(drop=True)
-    leader_name = df_sorted.iloc[0]['Сотрудник'] if len(df_sorted) > 0 else None
-    
-    for idx, row in df_sorted.iterrows():
-        emp = row['Сотрудник']
-        is_leader = (emp == leader_name) and row['Отработано часов'] > 0
-        
-        if is_leader:
-            st.markdown(f'### 🏆 {emp} — ЛИДЕР МЕСЯЦА')
-        else:
-            st.markdown(f'### #{idx + 1} {emp}')
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric('⏱ Всего часов', f"{row['Отработано часов']:.1f} / {norm}")
-        with col2:
-            st.metric(' Рабочих дней', f"{row['Отработано дней']} / {workdays}")
-        with col3:
-            st.metric('🔥 Переработка', f"{row['Переработка']:.1f} ч")
-        with col4:
-            remaining = row['Осталось часов']
-            if remaining > 0:
-                st.metric('⏳ Осталось часов', f"{remaining:.1f} ч")
-            else:
-                st.metric('✅ Норма выполнена', f"+{row['Отработано часов'] - norm:.1f} ч")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown(f"**📊 % выполнения по часам:** {row['Процент выполнения']}")
-        with col2:
-            days_percent = (row['Отработано дней'] / workdays * 100) if workdays > 0 else 0
-            st.markdown(f"**📅 % выполнения по дням:** {days_percent:.1f}%")
-        
-        hours_percent = float(row['Процент выполнения'].replace('%', ''))
-        progress_value = min(hours_percent / 100, 1.0)
-        bar_html = f'''
-        <div style="background-color: #2d2d2d; border-radius: 10px; padding: 3px; margin: 15px 0;">
-            <div style="background-color: #9CA3AF; width: {progress_value * 100}%; height: 35px; border-radius: 8px; text-align: center; line-height: 35px; color: white; font-weight: bold; font-size: 14px;">
-                {hours_percent:.1f}%
-            </div>
-        </div>
-        '''
-        st.markdown(bar_html, unsafe_allow_html=True)
-        st.markdown('---')
-
-# ============================================
-# ВВОД ЧАСОВ С ЦВЕТНЫМИ КОЛОНКАМИ
-# ============================================
-elif page == 'input':
+if page == 'input':
     st.title(f'️ Ввод часов — {month} 2026')
     
     col1, col2, col3, col4 = st.columns(4)
-    with col1: st.info(f'📅 Рабочих дней: **{workdays}**')
+    with col1: st.info(f' Рабочих дней: **{workdays}**')
     with col2: st.info(f' Норма часов: **{norm}**')
     with col3: st.info(f'🔴 Праздников: **{len(month_info["holidays"])}**')
     with col4: st.info(f'🟠 Сокращённых: **{len(month_info["short"])}**')
@@ -353,7 +252,7 @@ elif page == 'input':
         elif day in cal['short']:
             color, text_color, label = '#FED7AA', '#9A3412', f'🟠{day}'
         elif day in cal['weekends']:
-            color, text_color, label = '#E9D5FF', '#6B21A8', f'🟣{day}'
+            color, text_color, label = '#E9D5FF', '#6B21A8', f'{day}'
         else:
             color, text_color, label = '#374151', '#FFFFFF', str(day)
         
@@ -390,7 +289,7 @@ elif page == 'input':
         if day in cal['holidays']:
             day_label = f'🔴{day}'
         elif day in cal['short']:
-            day_label = f'{day}'
+            day_label = f'🟠{day}'
         elif day in cal['weekends']:
             day_label = f'🟣{day}'
         else:
@@ -471,10 +370,10 @@ elif page == 'input':
         if is_locked(month, emp):
             st.success(f'✅ {emp} — данные зафиксированы 🔒')
         else:
-            st.warning(f'⚠️ {emp} — можно редактировать')
+            st.warning(f'️ {emp} — можно редактировать')
     
     st.markdown('---')
-    st.markdown('** Легенда:**')
+    st.markdown('**📌 Легенда:**')
     st.markdown('''
     <span style="background-color: #FCA5A5; color: #991B1B; display: inline-block; padding: 5px 10px; margin: 2px; border-radius: 5px; font-size: 12px;">🔴 Праздник</span>
     <span style="background-color: #FED7AA; color: #9A3412; display: inline-block; padding: 5px 10px; margin: 2px; border-radius: 5px; font-size: 12px;">🟠 Сокращённый</span>
@@ -482,6 +381,108 @@ elif page == 'input':
     <span style="background-color: #374151; color: white; display: inline-block; padding: 5px 10px; margin: 2px; border-radius: 5px; font-size: 12px;">⚪ Рабочий</span>
     ''', unsafe_allow_html=True)
     st.markdown('💡 **Переработка** = всё что больше 8 часов в день')
+
+# ============================================
+# ДАШБОРД
+# ============================================
+elif page == 'dashboard':
+    st.title(f'📊 Дашборд — {month} 2026')
+    
+    stats_list = []
+    for emp in EMPLOYEES:
+        hours = get_hours(month, emp)
+        total, overtime, efficiency, remaining_hours, workdays_worked, remaining_days = calc_stats(hours, norm, workdays)
+        streak = get_checkin_streak(emp)
+        locked_status = '🔒' if is_locked(month, emp) else '🔓'
+        stats_list.append({
+            'Сотрудник': f'{locked_status} {emp}',
+            'Отработано часов': total,
+            'Норма часов': norm,
+            'Осталось часов': remaining_hours,
+            'Процент выполнения': f'{efficiency:.1f}%',
+            'Отработано дней': workdays_worked,
+            'Рабочих дней в месяце': workdays,
+            'Осталось дней': remaining_days,
+            'Переработка': overtime,
+            'Серия дней 🔥': streak
+        })
+    
+    df = pd.DataFrame(stats_list)
+    
+    st.subheader('📋 Статистика по каждому сотруднику')
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    
+    st.markdown('---')
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader('⏱ Отработанные часы vs Норма')
+        if not df.empty:
+            st.bar_chart(df.set_index('Сотрудник')[['Отработано часов', 'Норма часов']])
+    with col2:
+        st.subheader('🔥 Переработка по сотрудникам')
+        if not df.empty:
+            st.bar_chart(df.set_index('Сотрудник')['Переработка'])
+    
+    st.markdown('---')
+    st.subheader('📈 Статистика')
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        top_worker = df.loc[df['Отработано часов'].idxmax()]
+        st.metric(' Лидер месяца', top_worker['Сотрудник'], f"{top_worker['Отработано часов']:.1f} ч")
+    with col2:
+        st.metric('🔥 Всего переработок', f"{df['Переработка'].sum():.1f} ч")
+    with col3:
+        completed = len(df[df['Осталось часов'] == 0])
+        st.metric('✅ Выполнили норму', f'{completed} чел.')
+    
+    st.markdown('---')
+    st.subheader('📊 Детальная статистика по сотрудникам')
+    
+    df_sorted = df.sort_values('Отработано часов', ascending=False).reset_index(drop=True)
+    leader_name = df_sorted.iloc[0]['Сотрудник'] if len(df_sorted) > 0 else None
+    
+    for idx, row in df_sorted.iterrows():
+        emp = row['Сотрудник']
+        is_leader = (emp == leader_name) and row['Отработано часов'] > 0
+        
+        if is_leader:
+            st.markdown(f'### 🏆 {emp} — ЛИДЕР МЕСЯЦА')
+        else:
+            st.markdown(f'### #{idx + 1} {emp}')
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric(' Всего часов', f"{row['Отработано часов']:.1f} / {norm}")
+        with col2:
+            st.metric('📅 Рабочих дней', f"{row['Отработано дней']} / {workdays}")
+        with col3:
+            st.metric('🔥 Переработка', f"{row['Переработка']:.1f} ч")
+        with col4:
+            remaining = row['Осталось часов']
+            if remaining > 0:
+                st.metric(' Осталось часов', f"{remaining:.1f} ч")
+            else:
+                st.metric('✅ Норма выполнена', f"+{row['Отработано часов'] - norm:.1f} ч")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f"**📊 % выполнения по часам:** {row['Процент выполнения']}")
+        with col2:
+            days_percent = (row['Отработано дней'] / workdays * 100) if workdays > 0 else 0
+            st.markdown(f"**📅 % выполнения по дням:** {days_percent:.1f}%")
+        
+        hours_percent = float(row['Процент выполнения'].replace('%', ''))
+        progress_value = min(hours_percent / 100, 1.0)
+        bar_html = f'''
+        <div style="background-color: #2d2d2d; border-radius: 10px; padding: 3px; margin: 15px 0;">
+            <div style="background-color: #9CA3AF; width: {progress_value * 100}%; height: 35px; border-radius: 8px; text-align: center; line-height: 35px; color: white; font-weight: bold; font-size: 14px;">
+                {hours_percent:.1f}%
+            </div>
+        </div>
+        '''
+        st.markdown(bar_html, unsafe_allow_html=True)
+        st.markdown('---')
 
 # ============================================
 # ЛЕНТА АКТИВНОСТИ
@@ -508,7 +509,7 @@ elif page == 'activity':
     
     st.markdown('---')
     
-    st.subheader(' Последние события')
+    st.subheader('📰 Последние события')
     
     if len(st.session_state.feed) == 0:
         st.info(' Лента пуста. Начни вводить часы — события появятся здесь!')
@@ -532,10 +533,10 @@ elif page == 'activity':
         st.rerun()
 
 # ============================================
-# ГОЛОСОВАНИЯ (АНОНИМНЫЕ)
+# ГОЛОСОВАНИЯ
 # ============================================
 elif page == 'votes':
-    st.title('🗳️ Голосования недели')
+    st.title('️ Голосования недели')
     
     st.markdown('**Проголосуй анонимно за самого работящего и главного халявщика команды!**')
     st.markdown('🔒 Голосование анонимное — никто не увидит твой выбор')
@@ -544,7 +545,7 @@ elif page == 'votes':
     voter = st.selectbox('👤 Кто голосует?', ['— Выбери себя —'] + EMPLOYEES)
     
     if voter == '— Выбери себя —':
-        st.warning('⚠️ Выбери своё имя чтобы проголосовать')
+        st.warning('️ Выбери своё имя чтобы проголосовать')
     else:
         already_voted = voter in st.session_state.votes['voters']
         
@@ -590,7 +591,7 @@ elif page == 'votes':
     
     st.markdown('---')
     
-    st.subheader(' Результаты голосования')
+    st.subheader('📊 Результаты голосования')
     
     hw_votes = {}
     sl_votes = {}
@@ -670,7 +671,7 @@ elif page == 'votes':
             'slacker': {},
             'voters': []
         }
-        add_to_feed('🔄 Начато новое голосование недели!', '🗳️')
+        add_to_feed('🔄 Начато новое голосование недели!', '️')
         save_to_cloud(get_all_data())
         st.success('Голосование сброшено!')
         st.rerun()
@@ -722,14 +723,14 @@ elif page == 'rating':
             with col3:
                 st.markdown(f"""
                 <div style="background:#CD7F32; padding:20px; border-radius:10px; text-align:center;">
-                <h2>🥉</h2><h3>{df.iloc[2]["Сотрудник"]}</h3>
+                <h2></h2><h3>{df.iloc[2]["Сотрудник"]}</h3>
                 <p><b>{df.iloc[2]["Часы"]:.1f} ч</b></p>
                 <p>Переработка: {df.iloc[2]["Переработка"]:.1f} ч</p>
                 </div>
                 """, unsafe_allow_html=True)
         
         st.markdown('---')
-        st.subheader('📋 Полный рейтинг')
+        st.subheader(' Полный рейтинг')
         st.dataframe(df, use_container_width=True)
         
         st.markdown('---')
@@ -746,7 +747,7 @@ elif page == 'rating':
         with col2:
             st.markdown(f"""
             <div style="background:linear-gradient(135deg, #8B4513, #654321); padding:20px; border-radius:10px; border:2px solid #8B4513;">
-            <h2>📜 АНТИНАГРАДА</h2><h3 style="color:#FFD700;">ЛОХ</h3>
+            <h2> АНТИНАГРАДА</h2><h3 style="color:#FFD700;">ЛОХ</h3>
             <p><b>{df.iloc[-1]["Сотрудник"]}</b></p>
             <p>{df.iloc[-1]["Часы"]:.1f} часов | эффективность {df.iloc[-1]["Эффективность %"]:.0f}%</p>
             </div>
