@@ -3,15 +3,21 @@ import pandas as pd
 import requests
 import base64
 import json
+import os
 from datetime import datetime
 
 st.set_page_config(page_title="Учёт часов", page_icon="", layout="wide")
 
-# НАСТРОЙКИ
-GITHUB_TOKEN = "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"
+# НАСТРОЙКИ — токен берётся из Streamlit Secrets
+GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
 REPO_OWNER = "easy-bizzy"
 REPO_NAME = "work"
 FILE_PATH = "data.json"
+
+# Диагностика токена
+if not GITHUB_TOKEN:
+    st.error("❌ Токен не найден! Добавь его в Streamlit Secrets.")
+    st.stop()
 
 def get_headers():
     return {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
@@ -20,105 +26,56 @@ def get_file_url():
     return f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
 
 def load_from_github():
-    """Загрузка с полной диагностикой"""
-    url = get_file_url()
-    st.sidebar.write(f"**URL:** `{url}`")
-    
     try:
-        r = requests.get(url, headers=get_headers(), timeout=10)
-        st.sidebar.write(f"**GET статус:** {r.status_code}")
-        
+        r = requests.get(get_file_url(), headers=get_headers(), timeout=10)
         if r.status_code == 200:
-            data = r.json()
-            st.sidebar.write(f"**SHA:** {data.get('sha', 'N/A')[:20]}...")
-            
-            content = base64.b64decode(data['content']).decode('utf-8')
-            st.sidebar.write(f"**Размер:** {len(content)} байт")
-            
-            parsed = json.loads(content)
-            st.sidebar.success(f"✅ Загружено!")
-            return parsed, True
-        elif r.status_code == 404:
-            st.sidebar.error("❌ Файл data.json не найден! Создай его в репозитории.")
-            return None, False
+            content = base64.b64decode(r.json()['content']).decode('utf-8')
+            return json.loads(content), True
         elif r.status_code == 401:
-            st.sidebar.error("❌ Неверный токен!")
+            st.sidebar.error("❌ Неверный токен! Проверь Secrets.")
             return None, False
-        elif r.status_code == 403:
-            st.sidebar.error("❌ Нет прав доступа. Проверь токен.")
+        elif r.status_code == 404:
+            st.sidebar.error("❌ Файл data.json не найден в репозитории!")
             return None, False
         else:
-            st.sidebar.error(f"❌ Ошибка {r.status_code}: {r.text[:100]}")
+            st.sidebar.error(f"❌ Ошибка {r.status_code}")
             return None, False
     except Exception as e:
-        st.sidebar.error(f"❌ Исключение: {e}")
+        st.sidebar.error(f"❌ {e}")
         return None, False
 
 def save_to_github(data):
-    """Сохранение с полной диагностикой"""
-    url = get_file_url()
-    
     try:
-        # Сначала получаем текущий файл
-        r = requests.get(url, headers=get_headers(), timeout=10)
-        st.sidebar.write(f"**GET для SHA:** {r.status_code}")
+        r = requests.get(get_file_url(), headers=get_headers(), timeout=10)
+        sha = r.json()['sha'] if r.status_code == 200 else None
         
-        if r.status_code == 200:
-            sha = r.json()['sha']
-            st.sidebar.write(f"**SHA:** {sha[:20]}...")
-        elif r.status_code == 404:
-            st.sidebar.warning("⚠️ Файл не существует, создаём новый")
-            sha = None
-        else:
-            st.sidebar.error(f"❌ Ошибка получения SHA: {r.status_code}")
-            return False
-        
-        # Кодируем данные
         content = json.dumps(data, ensure_ascii=False, indent=2)
         encoded = base64.b64encode(content.encode('utf-8')).decode('utf-8')
-        st.sidebar.write(f"**Размер данных:** {len(content)} байт")
         
-        # Формируем payload
-        payload = {
-            "message": f"Update {datetime.now().strftime('%H:%M:%S')}",
-            "content": encoded,
-            "branch": "main"
-        }
-        
+        payload = {"message": f"Update {datetime.now().strftime('%H:%M:%S')}", 
+                   "content": encoded, "branch": "main"}
         if sha:
             payload["sha"] = sha
         
-        # Отправляем
-        r = requests.put(url, headers=get_headers(), json=payload, timeout=10)
-        st.sidebar.write(f"**PUT статус:** {r.status_code}")
-        
-        if r.status_code in [200, 201]:
-            st.sidebar.success("✅ Сохранено!")
-            return True
-        else:
-            st.sidebar.error(f"❌ Ошибка сохранения: {r.status_code}")
-            st.sidebar.code(r.text[:200])
-            return False
+        r = requests.put(get_file_url(), headers=get_headers(), json=payload, timeout=10)
+        return r.status_code in [200, 201]
     except Exception as e:
-        st.sidebar.error(f"❌ Исключение: {e}")
+        st.sidebar.error(f"❌ {e}")
         return False
 
 # ИНИЦИАЛИЗАЦИЯ
-st.sidebar.markdown("### 🔍 Диагностика")
-data, ok = load_from_github()
-
-if ok and data:
-    st.session_state.hours_data = data.get('hours', {})
-    st.session_state.feed = data.get('feed', [])
-    st.session_state.votes = data.get('votes', {'hardworker': {}, 'slacker': {}, 'voters': []})
-    st.session_state.locked_data = data.get('locked', {})
-    st.sidebar.success(f"✅ Загружено {len(st.session_state.hours_data)} записей")
-else:
-    st.session_state.hours_data = {}
-    st.session_state.feed = []
-    st.session_state.votes = {'hardworker': {}, 'slacker': {}, 'voters': []}
-    st.session_state.locked_data = {}
-    st.sidebar.warning("⚠️ Начинаем с нуля")
+if 'hours_data' not in st.session_state:
+    data, ok = load_from_github()
+    if ok and data:
+        st.session_state.hours_data = data.get('hours', {})
+        st.session_state.feed = data.get('feed', [])
+        st.session_state.votes = data.get('votes', {'hardworker': {}, 'slacker': {}, 'voters': []})
+        st.session_state.locked_data = data.get('locked', {})
+    else:
+        st.session_state.hours_data = {}
+        st.session_state.feed = []
+        st.session_state.votes = {'hardworker': {}, 'slacker': {}, 'voters': []}
+        st.session_state.locked_data = {}
 
 # ДАННЫЕ
 EMPLOYEES = ['Виталя', 'Василий', 'Александр П', 'Александр О', 'Игорь', 'Стас']
@@ -140,35 +97,38 @@ def get_all_data():
     }
 
 # ИНТЕРФЕЙС
-st.sidebar.markdown("---")
-st.sidebar.write(f"Записей в памяти: {len(st.session_state.hours_data)}")
+st.sidebar.title("📊 Учёт часов")
 
-if st.sidebar.button("💾 СОХРАНИТЬ", type="primary", use_container_width=True):
+if st.sidebar.button(" СОХРАНИТЬ В GITHUB", type="primary", use_container_width=True):
     with st.spinner("Сохранение..."):
         ok = save_to_github(get_all_data())
         if ok:
-            st.success("✅ Сохранено в GitHub!")
+            st.sidebar.success("✅ Сохранено!")
+            st.success("Данные сохранены в GitHub!")
         else:
-            st.error("❌ Ошибка! Смотри диагностику в боковой панели.")
+            st.sidebar.error("❌ Ошибка!")
+
+if st.sidebar.button("🔄 Загрузить из GitHub", use_container_width=True):
+    with st.spinner("Загрузка..."):
+        data, ok = load_from_github()
+        if ok and data:
+            st.session_state.hours_data = data.get('hours', {})
+            st.session_state.feed = data.get('feed', [])
+            st.session_state.votes = data.get('votes', {'hardworker': {}, 'slacker': {}, 'voters': []})
+            st.session_state.locked_data = data.get('locked', {})
+            st.sidebar.success("✅ Загружено!")
+            st.rerun()
+        else:
+            st.sidebar.error("❌ Ошибка загрузки!")
 
 st.sidebar.markdown("---")
-page = st.sidebar.radio("Меню", ["input", "dashboard"])
-month = st.sidebar.selectbox("Месяц", MONTHS)
+page = st.sidebar.radio("Меню", ["input", "dashboard", "activity", "votes", "rating"])
+month = st.sidebar.selectbox("📅 Месяц", MONTHS)
 
 # ВВОД ЧАСОВ
 if page == "input":
-    st.title(f"Ввод часов - {month}")
-    
+    st.title(f"⏱️ Ввод часов - {month}")
     days_count = DAYS_IN_MONTH[month]
-    
-    st.markdown("### Текущие данные:")
-    for emp in EMPLOYEES:
-        hours = get_hours(month, emp)
-        total = sum(hours)
-        if total > 0:
-            st.write(f"- {emp}: {total:.1f} ч")
-    
-    st.markdown("---")
     
     table_data = []
     for emp in EMPLOYEES:
@@ -180,7 +140,6 @@ if page == "input":
         table_data.append(row)
     
     df_input = pd.DataFrame(table_data)
-    
     column_config = {
         'Сотрудник': st.column_config.TextColumn('Сотрудник', disabled=True),
         'ИТОГО': st.column_config.NumberColumn('ИТОГО', format='%.1f', disabled=True),
@@ -193,8 +152,6 @@ if page == "input":
     st.markdown("---")
     
     if st.button("💾 СОХРАНИТЬ ДАННЫЕ", type="primary", use_container_width=True):
-        st.write("### Сохранение...")
-        
         for idx, emp in enumerate(EMPLOYEES):
             if idx < len(edited_df):
                 new_hours = []
@@ -205,33 +162,74 @@ if page == "input":
                 while len(new_hours) < 31: new_hours.append(0.0)
                 st.session_state.hours_data[f"{month}_{emp}"] = new_hours[:31]
                 total = sum(new_hours[:31])
-                st.write(f"✅ {emp}: {total:.1f} ч")
-        
-        st.write(f"**Всего записей: {len(st.session_state.hours_data)}**")
+                if total > 0:
+                    st.session_state.feed.insert(0, {
+                        'time': datetime.now().strftime('%d.%m %H:%M'),
+                        'emoji': '⏱',
+                        'message': f'{emp}: {total:.1f} ч'
+                    })
         
         ok = save_to_github(get_all_data())
         if ok:
-            st.success("✅ ДАННЫЕ СОХРАНЕНЫ!")
+            st.success("✅ ДАННЫЕ СОХРАНЕНЫ В GITHUB!")
             st.balloons()
         else:
-            st.error("❌ ОШИБКА! Смотри боковую панель.")
-        
+            st.error("❌ ОШИБКА СОХРАНЕНИЯ!")
         st.rerun()
 
 # ДАШБОРД
 elif page == "dashboard":
-    st.title(f"Дашборд - {month}")
-    
-    stats = []
-    for emp in EMPLOYEES:
-        hours = get_hours(month, emp)
-        total = sum(hours)
-        stats.append({'Сотрудник': emp, 'Часы': total})
-    
+    st.title(f"📊 Дашборд - {month}")
+    stats = [{'Сотрудник': emp, 'Часы': sum(get_hours(month, emp))} for emp in EMPLOYEES]
     df = pd.DataFrame(stats)
     st.dataframe(df, use_container_width=True, hide_index=True)
-    
     if df['Часы'].sum() > 0:
         st.bar_chart(df.set_index('Сотрудник'))
+
+# ЛЕНТА
+elif page == "activity":
+    st.title("📱 Лента активности")
+    if len(st.session_state.feed) == 0:
+        st.info("📭 Лента пуста.")
     else:
-        st.info("Нет данных.")
+        for item in st.session_state.feed:
+            st.markdown(f"**{item['time']}** {item['emoji']} {item['message']}")
+    if st.button("🗑️ Очистить"):
+        st.session_state.feed = []
+        save_to_github(get_all_data())
+        st.rerun()
+
+# ГОЛОСОВАНИЯ
+elif page == "votes":
+    st.title("🗳️ Голосования")
+    voter = st.selectbox(" Кто голосует?", ['— Выбери себя —'] + EMPLOYEES)
+    if voter != '— Выбери себя —':
+        already = voter in st.session_state.votes['voters']
+        if already:
+            st.success("✅ Ты уже проголосовал!")
+        else:
+            col1, col2 = st.columns(2)
+            with col1:
+                hw = st.radio("💪 Работящий:", [e for e in EMPLOYEES if e != voter], key='hw')
+                if st.button("Голосовать за работящего"):
+                    st.session_state.votes['hardworker'][voter] = hw
+                    st.session_state.votes['voters'].append(voter)
+                    save_to_github(get_all_data())
+                    st.success("✅ Голос засчитан!")
+                    st.rerun()
+            with col2:
+                sl = st.radio("😴 Халявщик:", [e for e in EMPLOYEES if e != voter], key='sl')
+                if st.button("Голосовать за халявщика"):
+                    st.session_state.votes['slacker'][voter] = sl
+                    if voter not in st.session_state.votes['voters']:
+                        st.session_state.votes['voters'].append(voter)
+                    save_to_github(get_all_data())
+                    st.success("✅ Голос засчитан!")
+                    st.rerun()
+
+# РЕЙТИНГ
+elif page == "rating":
+    st.title(f"🏆 Рейтинг - {month}")
+    stats = [{'Сотрудник': emp, 'Часы': sum(get_hours(month, emp))} for emp in EMPLOYEES]
+    df = pd.DataFrame(stats).sort_values('Часы', ascending=False)
+    st.dataframe(df, use_container_width=True)
