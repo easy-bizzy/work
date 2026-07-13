@@ -13,11 +13,14 @@ st.set_page_config(
 )
 
 # ============================================
-# НАСТРОЙКИ JSONBIN
+# НАСТРОЙКИ
 # ============================================
 JSONBIN_API_KEY = "$2a$10$fdP3BAMcCh8G0kJpVurg7.fqWCvq9jsXK.yzOcd0ynCzs4H2PEoVC"
 JSONBIN_BIN_ID = "6a53ccceda38895dfe534f3f"
-LOCAL_FILE = "hours_backup.json"  # Локальный файл-страховка
+LOCAL_FILE = "hours_backup.json"
+
+# Получаем абсолютный путь к файлу
+LOCAL_FILE_PATH = os.path.abspath(LOCAL_FILE)
 
 def load_from_cloud():
     """Загрузка из JSONBin"""
@@ -30,10 +33,10 @@ def load_from_cloud():
         if response.status_code == 200:
             result = response.json()
             if 'record' in result:
-                return result['record'], "✅ Облако подключено"
+                return result['record'], "✅ Облако работает"
         return None, f"⚠️ Облако: код {response.status_code}"
     except Exception as e:
-        return None, f"⚠️ Нет связи с облаком"
+        return None, f"⚠️ Нет связи: {str(e)}"
 
 def save_to_cloud(data):
     """Сохранение в JSONBin"""
@@ -49,25 +52,28 @@ def save_to_cloud(data):
             return True, "✅ Сохранено в облако"
         return False, f"❌ Ошибка {response.status_code}"
     except Exception as e:
-        return False, f"❌ Нет связи"
+        return False, f"❌ Нет связи: {str(e)}"
 
 def save_to_local(data):
-    """Сохранение в локальный файл (страховка)"""
+    """Сохранение в локальный файл"""
     try:
-        with open(LOCAL_FILE, 'w', encoding='utf-8') as f:
+        with open(LOCAL_FILE_PATH, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         return True
-    except:
+    except Exception as e:
         return False
 
 def load_from_local():
     """Загрузка из локального файла"""
-    if os.path.exists(LOCAL_FILE):
+    if os.path.exists(LOCAL_FILE_PATH):
         try:
-            with open(LOCAL_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except:
-            return None
+            with open(LOCAL_FILE_PATH, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                # Проверяем что данные не пустые
+                if data.get('hours'):
+                    return data
+        except Exception as e:
+            print(f"Ошибка загрузки файла: {e}")
     return None
 
 EMPLOYEES = ['Виталя', 'Василий', 'Александр П', 'Александр О', 'Игорь', 'Стас']
@@ -85,39 +91,48 @@ MONTHS_DATA = {
 DAYS_IN_MONTH = {'ИЮЛЬ': 31, 'АВГУСТ': 31, 'СЕНТЯБРЬ': 30, 'ОКТЯБРЬ': 31, 'НОЯБРЬ': 30, 'ДЕКАБРЬ': 31}
 
 # ============================================
-# ИНИЦИАЛИЗАЦИЯ ДАННЫХ
+# ИНИЦИАЛИЗАЦИЯ ДАННЫХ (ПРИ КАЖДОМ ЗАПУСКЕ)
 # ============================================
-if 'hours_data' not in st.session_state:
-    # Сначала пробуем облако
-    cloud_data, cloud_msg = load_from_cloud()
-    
-    if cloud_data:
-        st.session_state.hours_data = cloud_data.get('hours', {})
-        st.session_state.feed = cloud_data.get('feed', [])
-        st.session_state.votes = cloud_data.get('votes', {'hardworker': {}, 'slacker': {}, 'voters': []})
-        st.session_state.checkins = cloud_data.get('checkins', {})
-        st.session_state.locked_data = cloud_data.get('locked', {})
-        st.session_state.cloud_status = cloud_msg
-        st.session_state.source = "☁️ Облако"
-    else:
-        # Если облако недоступно — пробуем локальный файл
-        local_data = load_from_local()
-        if local_data:
-            st.session_state.hours_data = local_data.get('hours', {})
-            st.session_state.feed = local_data.get('feed', [])
-            st.session_state.votes = local_data.get('votes', {'hardworker': {}, 'slacker': {}, 'voters': []})
-            st.session_state.checkins = local_data.get('checkins', {})
-            st.session_state.locked_data = local_data.get('locked', {})
-            st.session_state.cloud_status = f"{cloud_msg} (загружено из файла)"
-            st.session_state.source = "💾 Локальный файл"
-        else:
-            st.session_state.hours_data = {}
-            st.session_state.feed = []
-            st.session_state.votes = {'hardworker': {}, 'slacker': {}, 'voters': []}
-            st.session_state.checkins = {}
-            st.session_state.locked_data = {}
-            st.session_state.cloud_status = cloud_msg
-            st.session_state.source = "🆕 Пустые данные"
+print("=" * 50)
+print(" ЗАПУСК ПРИЛОЖЕНИЯ")
+print("=" * 50)
+
+# Всегда пытаемся загрузить данные при старте
+cloud_data, cloud_msg = load_from_cloud()
+local_data = load_from_local()
+
+print(f"️ Облако: {cloud_msg}")
+print(f"💾 Локальный файл: {'найден' if local_data else 'не найден'}")
+
+if cloud_data:
+    st.session_state.hours_data = cloud_data.get('hours', {})
+    st.session_state.feed = cloud_data.get('feed', [])
+    st.session_state.votes = cloud_data.get('votes', {'hardworker': {}, 'slacker': {}, 'voters': []})
+    st.session_state.checkins = cloud_data.get('checkins', {})
+    st.session_state.locked_data = cloud_data.get('locked', {})
+    st.session_state.cloud_status = cloud_msg
+    st.session_state.source = "☁️ Облако"
+    print("✅ Загружено из облака")
+elif local_data:
+    st.session_state.hours_data = local_data.get('hours', {})
+    st.session_state.feed = local_data.get('feed', [])
+    st.session_state.votes = local_data.get('votes', {'hardworker': {}, 'slacker': {}, 'voters': []})
+    st.session_state.checkins = local_data.get('checkins', {})
+    st.session_state.locked_data = local_data.get('locked', {})
+    st.session_state.cloud_status = f"{cloud_msg} (загружено из файла)"
+    st.session_state.source = " Локальный файл"
+    print("✅ Загружено из локального файла")
+else:
+    st.session_state.hours_data = {}
+    st.session_state.feed = []
+    st.session_state.votes = {'hardworker': {}, 'slacker': {}, 'voters': []}
+    st.session_state.checkins = {}
+    st.session_state.locked_data = {}
+    st.session_state.cloud_status = cloud_msg
+    st.session_state.source = "🆕 Пустые данные"
+    print("⚠️ Нет данных, начинаем с нуля")
+
+print("=" * 50)
 
 def get_hours(month, emp):
     key = f"{month}_{emp}"
@@ -194,20 +209,21 @@ st.sidebar.markdown('### ☁️ Статус хранилища')
 st.sidebar.info(f"**Источник:** {st.session_state.source}\n\n**Облако:** {st.session_state.cloud_status}")
 
 if st.sidebar.button('🔄 Принудительно загрузить из облака', use_container_width=True):
-    cloud_data, cloud_msg = load_from_cloud()
-    if cloud_data:
-        st.session_state.hours_data = cloud_data.get('hours', {})
-        st.session_state.feed = cloud_data.get('feed', [])
-        st.session_state.votes = cloud_data.get('votes', {'hardworker': {}, 'slacker': {}, 'voters': []})
-        st.session_state.checkins = cloud_data.get('checkins', {})
-        st.session_state.locked_data = cloud_data.get('locked', {})
-        st.session_state.cloud_status = "✅ Загружено из облака!"
-        st.session_state.source = "️ Облако"
-        st.success('✅ Данные загружены из облака!')
-        st.rerun()
-    else:
-        st.session_state.cloud_status = cloud_msg
-        st.warning(cloud_msg)
+    with st.spinner('Загрузка...'):
+        cloud_data, cloud_msg = load_from_cloud()
+        if cloud_data:
+            st.session_state.hours_data = cloud_data.get('hours', {})
+            st.session_state.feed = cloud_data.get('feed', [])
+            st.session_state.votes = cloud_data.get('votes', {'hardworker': {}, 'slacker': {}, 'voters': []})
+            st.session_state.checkins = cloud_data.get('checkins', {})
+            st.session_state.locked_data = cloud_data.get('locked', {})
+            st.session_state.cloud_status = "✅ Загружено из облака!"
+            st.session_state.source = "☁️ Облако"
+            st.success('✅ Данные загружены из облака!')
+            st.rerun()
+        else:
+            st.session_state.cloud_status = cloud_msg
+            st.warning(cloud_msg)
 
 if st.sidebar.button('💾 Сохранить сейчас', type='primary', use_container_width=True):
     with st.spinner('Сохранение...'):
@@ -225,16 +241,23 @@ st.sidebar.markdown('---')
 
 # Диагностика
 with st.sidebar.expander('🔍 Диагностика'):
+    st.write(f"**Путь к файлу:** `{LOCAL_FILE_PATH}`")
+    st.write(f"**Файл существует:** {os.path.exists(LOCAL_FILE_PATH)}")
     st.write(f"**Bin ID:** `{JSONBIN_BIN_ID}`")
-    st.write(f"**API Key:** `{JSONBIN_API_KEY[:20]}...`")
-    st.write(f"**Локальный файл:** `{LOCAL_FILE}`")
     st.write(f"**Размер данных:** {len(json.dumps(get_all_data()))} байт")
     
-    if os.path.exists(LOCAL_FILE):
-        st.success(f"✅ Файл существует")
-        with open(LOCAL_FILE, 'r', encoding='utf-8') as f:
-            preview = f.read()[:200]
-        st.code(preview, language='json')
+    if os.path.exists(LOCAL_FILE_PATH):
+        st.success("✅ Файл существует")
+        try:
+            with open(LOCAL_FILE_PATH, 'r', encoding='utf-8') as f:
+                content = f.read()
+                st.code(content[:500], language='json')
+                
+                # Проверяем что внутри
+                data = json.loads(content)
+                st.write(f"**Часов записей:** {len(data.get('hours', {}))}")
+        except Exception as e:
+            st.error(f"Ошибка чтения: {e}")
     else:
         st.error("❌ Файл не создан")
 
@@ -274,7 +297,7 @@ if page == 'dashboard':
             'Рабочих дней в месяце': workdays,
             'Осталось дней': remaining_days,
             'Переработка': overtime,
-            'Серия дней 🔥': streak
+            'Серия дней ': streak
         })
     
     df = pd.DataFrame(stats_list)
@@ -290,7 +313,7 @@ if page == 'dashboard':
         if not df.empty:
             st.bar_chart(df.set_index('Сотрудник')[['Отработано часов', 'Норма часов']])
     with col2:
-        st.subheader(' Переработка по сотрудникам')
+        st.subheader('🔥 Переработка по сотрудникам')
         if not df.empty:
             st.bar_chart(df.set_index('Сотрудник')['Переработка'])
     
@@ -347,7 +370,7 @@ elif page == 'input':
         if day in cal['holidays']:
             color, text_color, label = '#FCA5A5', '#991B1B', f'🔴{day}'
         elif day in cal['short']:
-            color, text_color, label = '#FED7AA', '#9A3412', f'🟠{day}'
+            color, text_color, label = '#FED7AA', '#9A3412', f'{day}'
         elif day in cal['weekends']:
             color, text_color, label = '#E9D5FF', '#6B21A8', f'🟣{day}'
         else:
@@ -386,9 +409,9 @@ elif page == 'input':
         if day in cal['holidays']:
             day_label = f'🔴{day}'
         elif day in cal['short']:
-            day_label = f'{day}'
+            day_label = f'🟠{day}'
         elif day in cal['weekends']:
-            day_label = f'{day}'
+            day_label = f'🟣{day}'
         else:
             day_label = str(day)
         
@@ -473,7 +496,7 @@ elif page == 'input':
         if is_locked(month, emp):
             st.success(f'✅ {emp} — данные зафиксированы 🔒')
         else:
-            st.warning(f'⚠️ {emp} — можно редактировать')
+            st.warning(f'️ {emp} — можно редактировать')
 
 # ============================================
 # ЛЕНТА АКТИВНОСТИ
@@ -492,7 +515,7 @@ elif page == 'activity':
         checkin_data.append({
             'Сотрудник': emp,
             'Серия дней': streak,
-            'Статус': '🔥 В игре' if streak > 0 else '😴 Не активен'
+            'Статус': ' В игре' if streak > 0 else '😴 Не активен'
         })
     
     df_checkin = pd.DataFrame(checkin_data).sort_values('Серия дней', ascending=False)
@@ -500,10 +523,10 @@ elif page == 'activity':
     
     st.markdown('---')
     
-    st.subheader(' Последние события')
+    st.subheader('📰 Последние события')
     
     if len(st.session_state.feed) == 0:
-        st.info(' Лента пуста. Начни вводить часы — события появятся здесь!')
+        st.info('📭 Лента пуста. Начни вводить часы — события появятся здесь!')
     else:
         for item in st.session_state.feed:
             st.markdown(f"""
@@ -517,7 +540,7 @@ elif page == 'activity':
     
     st.markdown('---')
     
-    if st.button('🗑️ Очистить ленту', use_container_width=True):
+    if st.button('️ Очистить ленту', use_container_width=True):
         st.session_state.feed = []
         save_everywhere()
         st.success('Лента очищена!')
@@ -555,7 +578,7 @@ elif page == 'votes':
                 if st.button('✅ Голосовать за работящего', type='primary', use_container_width=True):
                     st.session_state.votes['hardworker'][voter] = hardworker_choice
                     st.session_state.votes['voters'].append(voter)
-                    add_to_feed(f'Проведено анонимное голосование за работящего недели 💪', '️')
+                    add_to_feed(f'Проведено анонимное голосование за работящего недели 💪', '🗳️')
                     save_everywhere()
                     st.success('✅ Голос засчитан анонимно!')
                     st.rerun()
@@ -571,14 +594,14 @@ elif page == 'votes':
                     st.session_state.votes['slacker'][voter] = slacker_choice
                     if voter not in st.session_state.votes['voters']:
                         st.session_state.votes['voters'].append(voter)
-                    add_to_feed(f'Проведено анонимное голосование за халявщика недели 😴', '️')
+                    add_to_feed(f'Проведено анонимное голосование за халявщика недели 😴', '🗳️')
                     save_everywhere()
                     st.success('✅ Голос засчитан анонимно!')
                     st.rerun()
     
     st.markdown('---')
     
-    st.subheader('📊 Результаты голосования')
+    st.subheader(' Результаты голосования')
     
     hw_votes = {}
     sl_votes = {}
@@ -683,7 +706,7 @@ elif page == 'rating':
     df = pd.DataFrame(stats_list).sort_values('Часы', ascending=False).reset_index(drop=True)
     
     if df['Часы'].sum() == 0:
-        st.warning('⚠️ Нет данных за этот месяц. Введите часы на странице "Ввод часов".')
+        st.warning('️ Нет данных за этот месяц. Введите часы на странице "Ввод часов".')
     else:
         st.markdown('---')
         st.subheader('🏆 Подиум')
