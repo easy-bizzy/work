@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 import base64
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 st.set_page_config(page_title="Учёт рабочего времени", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
 
